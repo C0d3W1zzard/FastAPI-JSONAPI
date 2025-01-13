@@ -1,25 +1,25 @@
 from copy import deepcopy
-from typing import Dict, List, Optional, Set, Type
+from typing import Annotated, Optional, Type
 
 import pytest
 from fastapi import FastAPI, status
 from httpx import AsyncClient
-from pydantic import BaseModel, Field, root_validator, validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pytest import mark, param  # noqa: PT013
 from pytest_asyncio import fixture
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from examples.api_for_sqlalchemy.schemas import TaskBaseSchema
 from fastapi_jsonapi import RoutersJSONAPI
-from fastapi_jsonapi.exceptions import BadRequest
 from fastapi_jsonapi.schema_builder import SchemaBuilder
-from fastapi_jsonapi.validation_utils import extract_field_validators
+from fastapi_jsonapi.types_metadata import ClientCanSetId
+from fastapi_jsonapi.validation_utils import extract_validators
 from tests.fixtures.app import build_app_custom
 from tests.misc.utils import fake
 from tests.models import (
     Task,
     User,
 )
-from tests.schemas import TaskBaseSchema
 
 pytestmark = pytest.mark.asyncio
 
@@ -56,7 +56,7 @@ class TestTaskValidators:
         attributes = response_data["data"].pop("attributes")
         assert response_data == {
             "data": {
-                "id": str(task_with_none_ids.id),
+                "id": f"{task_with_none_ids.id}",
                 "type": resource_type,
             },
             "jsonapi": {"version": "1.0"},
@@ -67,9 +67,9 @@ class TestTaskValidators:
             # "task_ids": None,
             "task_ids": [],
         }
-        assert attributes == TaskBaseSchema.from_orm(task_with_none_ids)
+        assert attributes == TaskBaseSchema.model_validate(task_with_none_ids).model_dump()
 
-    async def test_base_model_root_validator_get_list(
+    async def test_base_model_model_validator_get_list(
         self,
         app: FastAPI,
         client: AsyncClient,
@@ -84,7 +84,7 @@ class TestTaskValidators:
         assert response_data == {
             "data": [
                 {
-                    "id": str(task_with_none_ids.id),
+                    "id": f"{task_with_none_ids.id}",
                     "type": resource_type,
                     "attributes": {
                         # not `None`! schema validator returns empty list `[]`
@@ -102,21 +102,20 @@ class TestTaskValidators:
             },
         }
 
-    async def test_base_model_root_validator_create(
+    async def test_base_model_model_validator_create(
         self,
         app: FastAPI,
         client: AsyncClient,
         resource_type: str,
         async_session: AsyncSession,
     ):
-        task_data = {
-            # should be converted to [] by schema on create
-            "task_ids": None,
-        }
         data_create = {
             "data": {
                 "type": resource_type,
-                "attributes": task_data,
+                "attributes": {
+                    # should be converted to [] by schema on create
+                    "task_ids": None,
+                },
             },
         }
         url = app.url_path_for(f"create_{resource_type}_list")
@@ -180,30 +179,26 @@ class TestValidators:
     async def execute_request_and_check_response(
         self,
         app: FastAPI,
-        body: Dict,
+        body: dict,
         expected_detail: str,
         resource_type: Optional[str] = None,
     ):
         resource_type = resource_type or self.resource_type
         async with AsyncClient(app=app, base_url="http://test") as client:
-            url = app.url_path_for(f"get_{resource_type}_list")
+            url = app.url_path_for(f"create_{resource_type}_list")
             res = await client.post(url, json=body)
-            assert res.status_code == status.HTTP_400_BAD_REQUEST, res.text
-            assert res.json() == {
-                "errors": [
-                    {
-                        "detail": expected_detail,
-                        "source": {"pointer": ""},
-                        "status_code": status.HTTP_400_BAD_REQUEST,
-                        "title": "Bad Request",
-                    },
-                ],
-            }
+            assert res.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, res.text
+            response_json = res.json()
+
+        assert response_json
+        assert "detail" in response_json, response_json
+        error = response_json["detail"][0]
+        assert error["msg"].endswith(expected_detail), (error, expected_detail)
 
     async def execute_request_twice_and_check_response(
         self,
         schema: Type[BaseModel],
-        body: Dict,
+        body: dict,
         expected_detail: str,
     ):
         """
@@ -228,21 +223,25 @@ class TestValidators:
         """
 
         class UserSchemaWithValidator(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
             name: str
 
-            @validator("name")
-            def validate_name(cls, v):
-                # checks that cls arg is not bound to the origin class
-                assert cls is not UserSchemaWithValidator
+            @field_validator("name")
+            @classmethod
+            def validate_name(cls, value):
+                msg = "Check validator"
+                raise ValueError(msg)
 
-                raise BadRequest(detail="Check validator")
-
-            class Config:
-                orm_mode = True
-
-        attrs = {"name": fake.name()}
-        create_user_body = {"data": {"attributes": attrs}}
-
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "name": fake.name(),
+                },
+            },
+        }
         await self.execute_request_twice_and_check_response(
             schema=UserSchemaWithValidator,
             body=create_user_body,
@@ -251,19 +250,27 @@ class TestValidators:
 
     async def test_field_validator_each_item_arg(self):
         class UserSchemaWithValidator(BaseModel):
-            names: List[str]
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
 
-            @validator("names", each_item=True)
-            def validate_name(cls, v):
-                if v == "bad_name":
-                    raise BadRequest(detail="Bad name not allowed")
+            names: list[str]
 
-            class Config:
-                orm_mode = True
+            @field_validator("names", mode="after")
+            @classmethod
+            def validate_name(cls, value):
+                for item in value:
+                    if item == "bad_name":
+                        msg = "Bad name not allowed"
+                        raise ValueError(msg)
 
-        attrs = {"names": ["good_name", "bad_name"]}
-        create_user_body = {"data": {"attributes": attrs}}
-
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "names": ["good_name", "bad_name"],
+                },
+            },
+        }
         await self.execute_request_twice_and_check_response(
             schema=UserSchemaWithValidator,
             body=create_user_body,
@@ -272,71 +279,70 @@ class TestValidators:
 
     async def test_field_validator_pre_arg(self):
         class UserSchemaWithValidator(BaseModel):
-            name: List[str]
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
 
-            @validator("name", pre=True)
-            def validate_name_pre(cls, v):
-                raise BadRequest(detail="Pre validator called")
+            name: list[str]
 
-            @validator("name")
-            def validate_name(cls, v):
-                raise BadRequest(detail="Not pre validator called")
+            @field_validator("name", mode="before")
+            @classmethod
+            def validate_name_pre(cls, value):
+                msg = "Pre validator called"
+                raise ValueError(msg)
 
-            class Config:
-                orm_mode = True
+            @field_validator("name", mode="after")
+            @classmethod
+            def validate_name(cls, value):
+                msg = "Not pre validator called"
+                raise ValueError(msg)
 
-        attrs = {"name": fake.name()}
-        create_user_body = {"data": {"attributes": attrs}}
-
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "name": fake.name(),
+                },
+            },
+        }
         await self.execute_request_twice_and_check_response(
             schema=UserSchemaWithValidator,
             body=create_user_body,
             expected_detail="Pre validator called",
         )
 
-    async def test_field_validator_always_arg(self):
-        class UserSchemaWithValidator(BaseModel):
-            name: str = None
-
-            @validator("name", always=True)
-            def validate_name(cls, v):
-                raise BadRequest(detail="Called always validator")
-
-            class Config:
-                orm_mode = True
-
-        create_user_body = {"data": {"attributes": {}}}
-
-        await self.execute_request_twice_and_check_response(
-            schema=UserSchemaWithValidator,
-            body=create_user_body,
-            expected_detail="Called always validator",
-        )
-
     async def test_field_validator_several_validators(self):
         class UserSchemaWithValidator(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
             field: str
 
-            @validator("field")
-            def validator_1(cls, v):
-                if v == "check_validator_1":
-                    raise BadRequest(detail="Called validator 1")
+            @field_validator("field", mode="after")
+            @classmethod
+            def validator_1(cls, value):
+                if value == "check_validator_1":
+                    msg = "Called validator 1"
+                    raise ValueError(msg)
 
-                return v
+                return value
 
-            @validator("field")
-            def validator_2(cls, v):
-                if v == "check_validator_2":
-                    raise BadRequest(detail="Called validator 2")
+            @field_validator("field", mode="after")
+            @classmethod
+            def validator_2(cls, value):
+                if value == "check_validator_2":
+                    msg = "Called validator 2"
+                    raise ValueError(msg)
 
-                return v
+                return value
 
-            class Config:
-                orm_mode = True
-
-        attrs = {"field": "check_validator_1"}
-        create_user_body = {"data": {"attributes": attrs}}
-
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "field": "check_validator_1",
+                },
+            },
+        }
         app = self.build_app(UserSchemaWithValidator)
         await self.execute_request_and_check_response(
             app=app,
@@ -344,9 +350,13 @@ class TestValidators:
             expected_detail="Called validator 1",
         )
 
-        attrs = {"field": "check_validator_2"}
-        create_user_body = {"data": {"attributes": attrs}}
-
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "field": "check_validator_2",
+                },
+            },
+        }
         await self.execute_request_and_check_response(
             app=app,
             body=create_user_body,
@@ -355,23 +365,29 @@ class TestValidators:
 
     async def test_field_validator_asterisk(self):
         class UserSchemaWithValidator(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
             field_1: str
             field_2: str
 
-            @validator("*", pre=True)
-            def validator(cls, v):
-                if v == "bad_value":
-                    raise BadRequest(detail="Check validator")
+            @field_validator("*", mode="before")
+            @classmethod
+            def validator(cls, value):
+                if value == "bad_value":
+                    msg = "Check validator"
+                    raise ValueError(msg)
+                return value
 
-            class Config:
-                orm_mode = True
-
-        attrs = {
-            "field_1": "bad_value",
-            "field_2": "",
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "field_1": "bad_value",
+                    "field_2": "",
+                },
+            },
         }
-        create_user_body = {"data": {"attributes": attrs}}
-
         app = self.build_app(UserSchemaWithValidator)
         await self.execute_request_and_check_response(
             app=app,
@@ -379,12 +395,14 @@ class TestValidators:
             expected_detail="Check validator",
         )
 
-        attrs = {
-            "field_1": "",
-            "field_2": "bad_value",
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "field_1": "",
+                    "field_2": "bad_value",
+                },
+            },
         }
-        create_user_body = {"data": {"attributes": attrs}}
-
         await self.execute_request_and_check_response(
             app=app,
             body=create_user_body,
@@ -397,22 +415,24 @@ class TestValidators:
         """
 
         class UserSchemaWithValidator(BaseModel):
-            id: int = Field(client_can_set_id=True)
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
 
-            @validator("id")
-            def validate_id(cls, v):
-                raise BadRequest(detail="Check validator")
+            id: Annotated[int, ClientCanSetId()]
 
-            class Config:
-                orm_mode = True
+            @field_validator("id", mode="after")
+            @classmethod
+            def validate_id(cls, value):
+                msg = "Check validator"
+                raise ValueError(msg)
 
         create_user_body = {
             "data": {
                 "attributes": {},
-                "id": 42,
+                "id": "42",
             },
         }
-
         await self.execute_request_twice_and_check_response(
             schema=UserSchemaWithValidator,
             body=create_user_body,
@@ -428,17 +448,24 @@ class TestValidators:
     )
     async def test_field_validator_can_change_value(self, inherit: bool):
         class UserSchemaWithValidator(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
             name: str
 
-            @validator("name", allow_reuse=True)
-            def fix_title(cls, v):
-                return v.title()
+            @field_validator("name", mode="after")
+            @classmethod
+            def fix_title(cls, value):
+                return value.title()
 
-            class Config:
-                orm_mode = True
-
-        attrs = {"name": "john doe"}
-        create_user_body = {"data": {"attributes": attrs}}
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "name": "john doe",
+                },
+            },
+        }
 
         if inherit:
             UserSchemaWithValidator = self.inherit(UserSchemaWithValidator)
@@ -448,18 +475,18 @@ class TestValidators:
             url = app.url_path_for(f"get_{self.resource_type}_list")
             res = await client.post(url, json=create_user_body)
             assert res.status_code == status.HTTP_201_CREATED, res.text
-
             res_json = res.json()
-            assert res_json["data"]
-            assert res_json["data"].pop("id")
-            assert res_json == {
-                "data": {
-                    "attributes": {"name": "John Doe"},
-                    "type": "validator",
-                },
-                "jsonapi": {"version": "1.0"},
-                "meta": None,
-            }
+
+        assert res_json["data"]
+        assert res_json["data"].pop("id")
+        assert res_json == {
+            "data": {
+                "attributes": {"name": "John Doe"},
+                "type": "validator",
+            },
+            "jsonapi": {"version": "1.0"},
+            "meta": None,
+        }
 
     @mark.parametrize(
         ("name", "expected_detail"),
@@ -470,44 +497,57 @@ class TestValidators:
             param("check_post_2", "Raised 2 post validator", id="check_2_post_validator"),
         ],
     )
-    async def test_root_validator(self, name: str, expected_detail: str):
+    async def test_model_validator(self, name: str, expected_detail: str):
         class UserSchemaWithValidator(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
             name: str
 
-            @root_validator(pre=True, allow_reuse=True)
+            @model_validator(mode="before")
+            @classmethod
             def validator_pre_1(cls, values):
                 if values["name"] == "check_pre_1":
-                    raise BadRequest(detail="Raised 1 pre validator")
+                    msg = "Raised 1 pre validator"
+                    raise ValueError(msg)
 
                 return values
 
-            @root_validator(pre=True, allow_reuse=True)
+            @model_validator(mode="before")
+            @classmethod
             def validator_pre_2(cls, values):
                 if values["name"] == "check_pre_2":
-                    raise BadRequest(detail="Raised 2 pre validator")
+                    msg = "Raised 2 pre validator"
+                    raise ValueError(msg)
 
                 return values
 
-            @root_validator(allow_reuse=True)
+            @model_validator(mode="after")
+            @classmethod
             def validator_post_1(cls, values):
-                if values["name"] == "check_post_1":
-                    raise BadRequest(detail="Raised 1 post validator")
+                if values.name == "check_post_1":
+                    msg = "Raised 1 post validator"
+                    raise ValueError(msg)
 
                 return values
 
-            @root_validator(allow_reuse=True)
+            @model_validator(mode="after")
+            @classmethod
             def validator_post_2(cls, values):
-                if values["name"] == "check_post_2":
-                    raise BadRequest(detail="Raised 2 post validator")
+                if values.name == "check_post_2":
+                    msg = "Raised 2 post validator"
+                    raise ValueError(msg)
 
                 return values
 
-            class Config:
-                orm_mode = True
-
-        attrs = {"name": name}
-        create_user_body = {"data": {"attributes": attrs}}
-
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "name": name,
+                },
+            },
+        }
         await self.execute_request_twice_and_check_response(
             schema=UserSchemaWithValidator,
             body=create_user_body,
@@ -521,20 +561,27 @@ class TestValidators:
             param(False, id="inherited_false"),
         ],
     )
-    async def test_root_validator_can_change_value(self, inherit: bool):
+    async def test_model_validator_can_change_value(self, inherit: bool):
         class UserSchemaWithValidator(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
             name: str
 
-            @root_validator(allow_reuse=True)
-            def fix_title(cls, v):
-                v["name"] = v["name"].title()
-                return v
+            @model_validator(mode="after")
+            @classmethod
+            def fix_title(cls, value):
+                value.name = value.name.title()
+                return value
 
-            class Config:
-                orm_mode = True
-
-        attrs = {"name": "john doe"}
-        create_user_body = {"data": {"attributes": attrs}}
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "name": "john doe",
+                },
+            },
+        }
 
         if inherit:
             UserSchemaWithValidator = self.inherit(UserSchemaWithValidator)
@@ -544,18 +591,20 @@ class TestValidators:
             url = app.url_path_for(f"get_{self.resource_type}_list")
             res = await client.post(url, json=create_user_body)
             assert res.status_code == status.HTTP_201_CREATED, res.text
-
             res_json = res.json()
-            assert res_json["data"]
-            assert res_json["data"].pop("id")
-            assert res_json == {
-                "data": {
-                    "attributes": {"name": "John Doe"},
-                    "type": "validator",
+
+        assert res_json["data"]
+        assert res_json["data"].pop("id")
+        assert res_json == {
+            "data": {
+                "attributes": {
+                    "name": "John Doe",
                 },
-                "jsonapi": {"version": "1.0"},
-                "meta": None,
-            }
+                "type": "validator",
+            },
+            "jsonapi": {"version": "1.0"},
+            "meta": None,
+        }
 
     @mark.parametrize(
         ("name", "expected_detail"),
@@ -566,78 +615,100 @@ class TestValidators:
             param("check_post_2", "check_post_2", id="check_2_post_validator"),
         ],
     )
-    async def test_root_validator_inheritance(self, name: str, expected_detail: str):
+    async def test_model_validator_inheritance(self, name: str, expected_detail: str):
         class UserSchemaWithValidatorBase(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
             name: str
 
-            @root_validator(pre=True, allow_reuse=True)
+            @model_validator(mode="before")
+            @classmethod
             def validator_pre_1(cls, values):
                 if values["name"] == "check_pre_1":
-                    raise BadRequest(detail="Base check_pre_1")
+                    msg = "Base check_pre_1"
+                    raise ValueError(msg)
 
                 return values
 
-            @root_validator(pre=True, allow_reuse=True)
+            @model_validator(mode="before")
+            @classmethod
             def validator_pre_2(cls, values):
                 if values["name"] == "check_pre_2":
-                    raise BadRequest(detail="Base check_pre_2")
+                    msg = "Base check_pre_2"
+                    raise ValueError(msg)
 
                 return values
 
-            @root_validator(allow_reuse=True)
+            @model_validator(mode="after")
+            @classmethod
             def validator_post_1(cls, values):
-                if values["name"] == "check_post_1":
-                    raise BadRequest(detail="Base check_post_1")
+                if values.name == "check_post_1":
+                    msg = "Base check_post_1"
+                    raise ValueError(msg)
 
                 return values
 
-            @root_validator(allow_reuse=True)
+            @model_validator(mode="after")
+            @classmethod
             def validator_post_2(cls, values):
-                if values["name"] == "check_post_2":
-                    raise BadRequest(detail="Base check_post_2")
+                if values.name == "check_post_2":
+                    msg = "Base check_post_2"
+                    raise ValueError(msg)
 
                 return values
-
-            class Config:
-                orm_mode = True
 
         class UserSchemaWithValidator(UserSchemaWithValidatorBase):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
             name: str
 
-            @root_validator(pre=True, allow_reuse=True)
+            @model_validator(mode="before")
+            @classmethod
             def validator_pre_1(cls, values):
                 if values["name"] == "check_pre_1":
-                    raise BadRequest(detail="check_pre_1")
+                    msg = "check_pre_1"
+                    raise ValueError(msg)
 
                 return values
 
-            @root_validator(pre=True, allow_reuse=True)
+            @model_validator(mode="before")
+            @classmethod
             def validator_pre_2(cls, values):
                 if values["name"] == "check_pre_2":
-                    raise BadRequest(detail="check_pre_2")
+                    msg = "check_pre_2"
+                    raise ValueError(msg)
 
                 return values
 
-            @root_validator(allow_reuse=True)
+            @model_validator(mode="after")
+            @classmethod
             def validator_post_1(cls, values):
-                if values["name"] == "check_post_1":
-                    raise BadRequest(detail="check_post_1")
+                if values.name == "check_post_1":
+                    msg = "check_post_1"
+                    raise ValueError(msg)
 
                 return values
 
-            @root_validator(allow_reuse=True)
+            @model_validator(mode="after")
+            @classmethod
             def validator_post_2(cls, values):
-                if values["name"] == "check_post_2":
-                    raise BadRequest(detail="check_post_2")
+                if values.name == "check_post_2":
+                    msg = "check_post_2"
+                    raise ValueError(msg)
 
                 return values
 
-            class Config:
-                orm_mode = True
-
-        attrs = {"name": name}
-        create_user_body = {"data": {"attributes": attrs}}
-
+        create_user_body = {
+            "data": {
+                "attributes": {
+                    "name": name,
+                },
+            },
+        }
         await self.execute_request_and_check_response(
             app=self.build_app(UserSchemaWithValidator),
             body=create_user_body,
@@ -657,29 +728,31 @@ class TestValidationUtils:
     )
     def test_extract_field_validators_args(
         self,
-        include: Set[str],
-        exclude: Set[str],
-        expected: Set[str],
+        include: set[str],
+        exclude: set[str],
+        expected: set[str],
     ):
         class ValidationSchema(BaseModel):
             item_1: str
             item_2: str
 
-            @validator("item_1", allow_reuse=True)
-            def item_1_validator(cls, v):
-                return v
+            @field_validator("item_1", mode="after")
+            @classmethod
+            def item_1_validator(cls, value):
+                return value
 
-            @validator("item_2", allow_reuse=True)
-            def item_2_validator(cls, v):
-                return v
+            @field_validator("item_2", mode="after")
+            @classmethod
+            def item_2_validator(cls, value):
+                return value
 
-        validators = extract_field_validators(
-            ValidationSchema,
-            include_for_field_names=include,
-            exclude_for_field_names=exclude,
+        assert (
+            set(
+                extract_validators(
+                    ValidationSchema,
+                    include_for_field_names=include,
+                    exclude_for_field_names=exclude,
+                ),
+            )
+            == expected
         )
-        validator_func_names = {
-            validator_item.__validator_config__[1].func.__name__ for validator_item in validators.values()
-        }
-
-        assert expected == validator_func_names

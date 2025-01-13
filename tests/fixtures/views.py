@@ -1,7 +1,7 @@
-from typing import ClassVar, Dict
+from typing import ClassVar
 
 from fastapi import Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from pytest import fixture  # noqa
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,16 +17,19 @@ from tests.fixtures.db_connection import async_session_dependency
 
 
 class ArbitraryModelBase(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
 
 
 class SessionDependency(ArbitraryModelBase):
     session: AsyncSession = Depends(async_session_dependency)
 
 
-def common_handler(view: ViewBase, dto: SessionDependency) -> Dict:
-    return {"session": dto.session}
+def common_handler(view: ViewBase, dto: SessionDependency) -> dict:
+    return {
+        "session": dto.session,
+    }
 
 
 class DetailViewBaseGeneric(DetailViewBaseGenericHelper):

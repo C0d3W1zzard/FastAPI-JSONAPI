@@ -1,7 +1,5 @@
-from __future__ import annotations
-
 import logging
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Optional
 
 import pytest
 from httpx import AsyncClient
@@ -11,9 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.functions import count
 from starlette import status
 
+from examples.api_for_sqlalchemy.schemas import (
+    ComputerAttributesBaseSchema,
+    UserAttributesBaseSchema,
+    UserBioAttributesBaseSchema,
+)
 from tests.misc.utils import fake
 from tests.models import Computer, User, UserBio
-from tests.schemas import ComputerAttributesBaseSchema, UserAttributesBaseSchema, UserBioAttributesBaseSchema
 
 pytestmark = mark.asyncio
 
@@ -47,15 +49,16 @@ class TestAtomicMixedActions:
         response_data = response.json()
 
         assert response_data == {
-            # TODO: jsonapi exception?
             "detail": [
                 {
-                    "loc": ["body", "atomic:operations", 0, "op"],
-                    "msg": f"value is not a valid enumeration member; permitted: {allowed_atomic_actions_as_string}",
-                    "type": "type_error.enum",
                     "ctx": {
-                        "enum_values": allowed_atomic_actions_list,
+                        "expected": allowed_atomic_actions_as_string,
                     },
+                    "input": operation_name,
+                    "loc": ["body", "atomic:operations", 0, "op"],
+                    "msg": f"Input should be {allowed_atomic_actions_as_string}",
+                    "type": "enum",
+                    "url": "https://errors.pydantic.dev/2.10/v/enum",
                 },
             ],
         }
@@ -80,8 +83,8 @@ class TestAtomicMixedActions:
         :param user_1_bio:
         :return:
         """
-        user_data = UserAttributesBaseSchema.from_orm(user_1)
-        user_bio_data = UserBioAttributesBaseSchema.from_orm(user_1_bio)
+        user_data = UserAttributesBaseSchema.model_validate(user_1)
+        user_bio_data = UserBioAttributesBaseSchema.model_validate(user_1_bio)
         user_data.name = fake.name()
         user_bio_data.favourite_movies = fake.sentence()
         assert user_1.name != user_data.name
@@ -95,11 +98,11 @@ class TestAtomicMixedActions:
                     "op": "add",
                     "data": {
                         "type": "computer",
-                        "attributes": new_computer.dict(),
+                        "attributes": new_computer.model_dump(),
                         "relationships": {
                             "user": {
                                 "data": {
-                                    "id": user_1.id,
+                                    "id": f"{user_1.id}",
                                     "type": "user",
                                 },
                             },
@@ -109,17 +112,17 @@ class TestAtomicMixedActions:
                 {
                     "op": "update",
                     "data": {
-                        "id": str(user_1_bio.id),
+                        "id": f"{user_1_bio.id}",
                         "type": "user_bio",
-                        "attributes": user_bio_data.dict(),
+                        "attributes": user_bio_data.model_dump(),
                     },
                 },
                 {
                     "op": "update",
                     "data": {
-                        "id": str(user_1.id),
+                        "id": f"{user_1.id}",
                         "type": "user",
-                        "attributes": user_data.dict(),
+                        "attributes": user_data.model_dump(),
                     },
                 },
             ],
@@ -138,25 +141,25 @@ class TestAtomicMixedActions:
         assert results == [
             {
                 "data": {
-                    "id": str(computer.id),
+                    "id": f"{computer.id}",
                     "type": "computer",
-                    "attributes": new_computer.dict(),
+                    "attributes": new_computer.model_dump(),
                 },
                 "meta": None,
             },
             {
                 "data": {
-                    "id": str(user_1_bio.id),
+                    "id": f"{user_1_bio.id}",
                     "type": "user_bio",
-                    "attributes": user_bio_data.dict(),
+                    "attributes": user_bio_data.model_dump(),
                 },
                 "meta": None,
             },
             {
                 "data": {
-                    "id": str(user_1.id),
+                    "id": f"{user_1.id}",
                     "type": "user",
-                    "attributes": user_data.dict(),
+                    "attributes": user_data.model_dump(),
                 },
                 "meta": None,
             },
@@ -184,8 +187,8 @@ class TestAtomicMixedActions:
         :param user_1_bio:
         :return:
         """
-        user_data = UserAttributesBaseSchema.from_orm(user_1)
-        user_bio_data = UserBioAttributesBaseSchema.from_orm(user_1_bio)
+        user_data = UserAttributesBaseSchema.model_validate(user_1)
+        user_bio_data = UserBioAttributesBaseSchema.model_validate(user_1_bio)
         user_bio_data.favourite_movies = fake.sentence()
         assert user_1_bio.favourite_movies != user_bio_data.favourite_movies
         user_data.name = user_2.name
@@ -201,11 +204,11 @@ class TestAtomicMixedActions:
                     "op": "add",
                     "data": {
                         "type": "computer",
-                        "attributes": new_computer.dict(),
+                        "attributes": new_computer.model_dump(),
                         "relationships": {
                             "user": {
                                 "data": {
-                                    "id": user_1.id,
+                                    "id": f"{user_1.id}",
                                     "type": "user",
                                 },
                             },
@@ -215,17 +218,17 @@ class TestAtomicMixedActions:
                 {
                     "op": "update",
                     "data": {
-                        "id": str(user_1_bio.id),
+                        "id": f"{user_1_bio.id}",
                         "type": "user_bio",
-                        "attributes": user_bio_data.dict(),
+                        "attributes": user_bio_data.model_dump(),
                     },
                 },
                 {
                     "op": "update",
                     "data": {
-                        "id": str(user_1.id),
+                        "id": f"{user_1.id}",
                         "type": "user",
-                        "attributes": user_data.dict(),
+                        "attributes": user_data.model_dump(),
                     },
                 },
             ],
@@ -253,7 +256,7 @@ class TestAtomicMixedActions:
                 "status_code": status.HTTP_400_BAD_REQUEST,
                 "title": "Bad Request",
                 "meta": {
-                    "id": str(user_1.id),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
             },
@@ -285,8 +288,8 @@ class TestAtomicMixedActions:
         :return:
         """
         computer: Computer = await computer_factory()
-        user_data = UserAttributesBaseSchema.from_orm(user_1)
-        user_bio_data = UserBioAttributesBaseSchema.from_orm(user_1_bio)
+        user_data = UserAttributesBaseSchema.model_validate(user_1)
+        user_bio_data = UserBioAttributesBaseSchema.model_validate(user_1_bio)
         user_data.name = fake.name()
         user_bio_data.favourite_movies = fake.sentence()
         assert user_1.name != user_data.name
@@ -300,11 +303,11 @@ class TestAtomicMixedActions:
                     "op": "add",
                     "data": {
                         "type": "computer",
-                        "attributes": new_computer.dict(),
+                        "attributes": new_computer.model_dump(),
                         "relationships": {
                             "user": {
                                 "data": {
-                                    "id": user_1.id,
+                                    "id": f"{user_1.id}",
                                     "type": "user",
                                 },
                             },
@@ -314,23 +317,23 @@ class TestAtomicMixedActions:
                 {
                     "op": "update",
                     "data": {
-                        "id": user_1_bio.id,
+                        "id": f"{user_1_bio.id}",
                         "type": "user_bio",
-                        "attributes": user_bio_data.dict(),
+                        "attributes": user_bio_data.model_dump(),
                     },
                 },
                 {
                     "op": "update",
                     "data": {
-                        "id": user_1.id,
+                        "id": f"{user_1.id}",
                         "type": "user",
-                        "attributes": user_data.dict(),
+                        "attributes": user_data.model_dump(),
                     },
                 },
                 {
                     "op": "remove",
                     "ref": {
-                        "id": computer.id,
+                        "id": f"{computer.id}",
                         "type": "computer",
                     },
                 },
@@ -353,25 +356,25 @@ class TestAtomicMixedActions:
         assert results == [
             {
                 "data": {
-                    "id": str(computer.id),
+                    "id": f"{computer.id}",
                     "type": "computer",
-                    "attributes": new_computer.dict(),
+                    "attributes": new_computer.model_dump(),
                 },
                 "meta": None,
             },
             {
                 "data": {
-                    "id": str(user_1_bio.id),
+                    "id": f"{user_1_bio.id}",
                     "type": "user_bio",
-                    "attributes": user_bio_data.dict(),
+                    "attributes": user_bio_data.model_dump(),
                 },
                 "meta": None,
             },
             {
                 "data": {
-                    "id": str(user_1.id),
+                    "id": f"{user_1.id}",
                     "type": "user",
-                    "attributes": user_data.dict(),
+                    "attributes": user_data.model_dump(),
                 },
                 "meta": None,
             },
@@ -424,15 +427,15 @@ class TestAtomicMixedActions:
                     "data": {
                         "type": "user",
                         "lid": user_lid,
-                        "attributes": user_create.dict(),
+                        "attributes": user_create.model_dump(),
                     },
                 },
                 {
                     "op": "update",
                     "data": {
-                        "id": str(computer_1.id),
+                        "id": f"{computer_1.id}",
                         "type": "computer",
-                        "attributes": computer_update.dict(),
+                        "attributes": computer_update.model_dump(),
                         "relationships": {
                             "user": {
                                 "data": {
@@ -463,7 +466,7 @@ class TestAtomicMixedActions:
                 ),
             )
         )
-        user: User | None = await async_session.scalar(user_stmt)
+        user: Optional[User] = await async_session.scalar(user_stmt)
         assert user
         await async_session.refresh(computer_1)
         assert computer_1.name == computer_update.name
@@ -471,17 +474,17 @@ class TestAtomicMixedActions:
         assert results == [
             {
                 "data": {
-                    "id": str(user.id),
+                    "id": f"{user.id}",
                     "type": "user",
-                    "attributes": user_create.dict(),
+                    "attributes": user_create.model_dump(),
                 },
                 "meta": None,
             },
             {
                 "data": {
-                    "id": str(computer_1.id),
+                    "id": f"{computer_1.id}",
                     "type": "computer",
-                    "attributes": computer_update.dict(),
+                    "attributes": computer_update.model_dump(),
                 },
                 "meta": None,
             },
@@ -514,12 +517,12 @@ class TestAtomicMixedActions:
                     "op": "add",
                     "data": {
                         "type": "user",
-                        "attributes": user_create.dict(),
+                        "attributes": user_create.model_dump(),
                         "relationships": {
                             "computers": {
                                 "data": [
                                     {
-                                        "id": computer_1.id,
+                                        "id": f"{computer_1.id}",
                                         "type": "computer",
                                     },
                                 ],
@@ -548,15 +551,15 @@ class TestAtomicMixedActions:
                 ),
             )
         )
-        new_user: User | None = await async_session.scalar(user_stmt)
+        new_user: Optional[User] = await async_session.scalar(user_stmt)
         assert isinstance(new_user, User)
         assert computer_1.user_id == new_user.id
         assert results == [
             {
                 "data": {
-                    "id": str(new_user.id),
+                    "id": f"{new_user.id}",
                     "type": "user",
-                    "attributes": user_create.dict(),
+                    "attributes": user_create.model_dump(),
                 },
                 "meta": None,
             },

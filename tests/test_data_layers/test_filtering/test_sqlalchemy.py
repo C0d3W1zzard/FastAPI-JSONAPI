@@ -2,7 +2,7 @@ from typing import Any
 from unittest.mock import MagicMock, Mock
 
 from fastapi import status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from pytest import raises  # noqa PT013
 
 from fastapi_jsonapi.data_layers.filtering.sqlalchemy import (
@@ -18,15 +18,16 @@ class TestFilteringFuncs:
                 """This method is needed to handle incoming arguments"""
 
         class ModelSchema(BaseModel):
-            value: UserType
+            model_config = ConfigDict(
+                arbitrary_types_allowed=True,
+            )
 
-            class Config:
-                arbitrary_types_allowed = True
+            value: UserType
 
         model_column_mock = MagicMock()
 
         build_filter_expression(
-            schema_field=ModelSchema.__fields__["value"],
+            schema_field=ModelSchema.model_fields["value"],
             model_column=model_column_mock,
             operator="__eq__",
             value=Any,
@@ -44,14 +45,15 @@ class TestFilteringFuncs:
                 raise ValueError(msg)
 
         class ModelSchema(BaseModel):
-            user_type: UserType
+            model_config = ConfigDict(
+                arbitrary_types_allowed=True,
+            )
 
-            class Config:
-                arbitrary_types_allowed = True
+            user_type: UserType
 
         with raises(InvalidType) as exc_info:
             build_filter_expression(
-                schema_field=ModelSchema.__fields__["user_type"],
+                schema_field=ModelSchema.model_fields["user_type"],
                 model_column=Mock(),
                 operator=Mock(),
                 value=Any,

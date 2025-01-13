@@ -80,14 +80,14 @@ Its signature should look like this
 
 .. code-block:: python
 
-    async def my_handler(view: ViewBase, dto: BaseModel) -> Dict[str, Any]:
+    async def my_handler(view: ViewBase, dto: BaseModel) -> dict[str, Any]:
         pass
 
 or this
 
 .. code-block:: python
 
-    async def my_handler(view: ViewBase) -> Dict[str, Any]:
+    async def my_handler(view: ViewBase) -> dict[str, Any]:
         pass
 
 In the case of dto, it is an instance of the class corresponds to what

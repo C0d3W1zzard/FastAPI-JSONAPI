@@ -3,25 +3,36 @@ from collections import defaultdict
 from contextlib import suppress
 from datetime import datetime, timezone
 from itertools import chain, zip_longest
-from typing import Dict, List, Literal, Set, Tuple
-from unittest.mock import call, patch
+from typing import Annotated, Literal
+from unittest.mock import call
 from uuid import UUID, uuid4
 
 import orjson as json
 import pytest
 from fastapi import FastAPI, status
 from httpx import AsyncClient
-from pydantic import BaseModel, Field
-from pydantic.fields import ModelField
+from pydantic import BaseModel
 from pytest import fixture, mark, param, raises  # noqa PT013
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import InstrumentedAttribute
 from starlette.datastructures import QueryParams
 
+from examples.api_for_sqlalchemy.schemas import (
+    CascadeCaseSchema,
+    CustomUserAttributesSchema,
+    CustomUUIDItemAttributesSchema,
+    PostAttributesBaseSchema,
+    PostCommentAttributesBaseSchema,
+    SelfRelationshipAttributesSchema,
+    UserAttributesBaseSchema,
+    UserBioAttributesBaseSchema,
+    UserInSchemaAllowIdOnPost,
+    UserPatchSchema,
+    UserSchema,
+)
 from fastapi_jsonapi.api import RoutersJSONAPI
-from fastapi_jsonapi.schema_builder import SchemaBuilder
-from fastapi_jsonapi.views.view_base import ViewBase
+from fastapi_jsonapi.types_metadata import ClientCanSetId
+from fastapi_jsonapi.types_metadata.custom_filter_sql import sql_filter_lower_equals
 from tests.common import is_postgres_tests
 from tests.fixtures.app import build_alphabet_app, build_app_custom
 from tests.fixtures.entities import (
@@ -46,22 +57,6 @@ from tests.models import (
     User,
     UserBio,
     Workplace,
-)
-from tests.schemas import (
-    CascadeCaseSchema,
-    CustomUserAttributesSchema,
-    CustomUUIDItemAttributesSchema,
-    PostAttributesBaseSchema,
-    PostCommentAttributesBaseSchema,
-    PostCommentSchema,
-    PostSchema,
-    SelfRelationshipAttributesSchema,
-    SelfRelationshipSchema,
-    UserAttributesBaseSchema,
-    UserBioAttributesBaseSchema,
-    UserInSchemaAllowIdOnPost,
-    UserPatchSchema,
-    UserSchema,
 )
 
 pytestmark = mark.asyncio
@@ -88,7 +83,7 @@ async def test_get_users(app: FastAPI, client: AsyncClient, user_1: User, user_2
     users = [user_1, user_2]
     assert len(users_data) == len(users)
     for user_data, user in zip(users_data, users):
-        assert user_data["id"] == ViewBase.get_db_item_id(user)
+        assert user_data["id"] == f"{user.id}"
         assert user_data["type"] == "user"
 
 
@@ -104,11 +99,11 @@ async def test_get_user_with_bio_relation(
     assert response.status_code == status.HTTP_200_OK
     response_data = response.json()
     assert "data" in response_data, response_data
-    assert response_data["data"]["id"] == ViewBase.get_db_item_id(user_1)
+    assert response_data["data"]["id"] == f"{user_1.id}"
     assert response_data["data"]["type"] == "user"
     assert "included" in response_data, response_data
     included_bio = response_data["included"][0]
-    assert included_bio["id"] == ViewBase.get_db_item_id(user_1_bio)
+    assert included_bio["id"] == f"{user_1_bio.id}"
     assert included_bio["type"] == "user_bio"
 
 
@@ -129,12 +124,12 @@ async def test_get_users_with_bio_relation(
     users = [user_1, user_2]
     assert len(users_data) == len(users)
     for user_data, user in zip(users_data, users):
-        assert user_data["id"] == ViewBase.get_db_item_id(user)
+        assert user_data["id"] == f"{user.id}"
         assert user_data["type"] == "user"
 
     assert "included" in response_data, response_data
     included_bio = response_data["included"][0]
-    assert included_bio["id"] == ViewBase.get_db_item_id(user_1_bio)
+    assert included_bio["id"] == f"{user_1_bio.id}"
     assert included_bio["type"] == "user_bio"
 
 
@@ -153,20 +148,18 @@ class TestGetUsersList:
 
         assert response.status_code == status.HTTP_200_OK, response.text
         response_data = response.json()
-        assert response_data == {
-            "data": [
-                {
-                    "attributes": UserAttributesBaseSchema.from_orm(user),
-                    "id": str(user.id),
-                    "type": "user",
-                },
-            ],
-            "jsonapi": {"version": "1.0"},
-            "meta": {"count": 2, "totalPages": 2},
-        }
+        expected_data = [
+            {
+                "attributes": UserAttributesBaseSchema.model_validate(user).model_dump(),
+                "id": f"{user.id}",
+                "type": "user",
+            },
+        ]
+        assert "data" in response_data
+        assert response_data["data"] == expected_data
 
     @mark.parametrize(
-        "fields, expected_include",
+        ("fields", "expected_include"),
         [
             param(
                 [
@@ -189,14 +182,14 @@ class TestGetUsersList:
         client: AsyncClient,
         user_1: User,
         user_2: User,
-        fields: List[Tuple[str, str]],
-        expected_include: Set[str],
+        fields: list[tuple[str, str]],
+        expected_include: set[str],
     ):
         url = app.url_path_for("get_user_list")
         user_1, user_2 = sorted((user_1, user_2), key=lambda x: x.id)
 
         params = QueryParams(fields)
-        response = await client.get(url, params=str(params))
+        response = await client.get(url, params=f"{params}")
 
         assert response.status_code == status.HTTP_200_OK, response.text
         response_data = response.json()
@@ -204,13 +197,13 @@ class TestGetUsersList:
         assert response_data == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(include=expected_include),
-                    "id": str(user_1.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(include=expected_include),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_2).dict(include=expected_include),
-                    "id": str(user_2.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_2).model_dump(include=expected_include),
+                    "id": f"{user_2.id}",
                     "type": "user",
                 },
             ],
@@ -248,7 +241,7 @@ class TestGetUsersList:
                 ("sort", "id"),
             ],
         )
-        response = await client.get(url, params=str(params))
+        response = await client.get(url, params=f"{params}")
 
         assert response.status_code == status.HTTP_200_OK, response.text
         response_data = response.json()
@@ -257,37 +250,37 @@ class TestGetUsersList:
         assert response_data == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(
                         include=set(queried_user_fields.split(",")),
                     ),
                     "relationships": {
                         "posts": {
                             "data": [
                                 {
-                                    "id": str(user_1_post.id),
+                                    "id": f"{user_1_post.id}",
                                     "type": "post",
                                 },
                             ],
                         },
                     },
-                    "id": str(user_1.id),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_2).dict(
+                    "attributes": UserAttributesBaseSchema.model_validate(user_2).model_dump(
                         include=set(queried_user_fields.split(",")),
                     ),
                     "relationships": {
                         "posts": {
                             "data": [
                                 {
-                                    "id": str(user_2_post.id),
+                                    "id": f"{user_2_post.id}",
                                     "type": "post",
                                 },
                             ],
                         },
                     },
-                    "id": str(user_2.id),
+                    "id": f"{user_2.id}",
                     "type": "user",
                 },
             ],
@@ -296,15 +289,15 @@ class TestGetUsersList:
             "included": sorted(
                 [
                     {
-                        "attributes": PostAttributesBaseSchema.from_orm(user_2_post).dict(
+                        "attributes": PostAttributesBaseSchema.model_validate(user_2_post).model_dump(
                             include=set(queried_post_fields.split(",")),
                         ),
-                        "id": str(user_2_post.id),
+                        "id": f"{user_2_post.id}",
                         "relationships": {
                             "comments": {
                                 "data": [
                                     {
-                                        "id": str(user_1_comment.id),
+                                        "id": f"{user_1_comment.id}",
                                         "type": "post_comment",
                                     },
                                 ],
@@ -313,23 +306,30 @@ class TestGetUsersList:
                         "type": "post",
                     },
                     {
-                        "attributes": PostAttributesBaseSchema.from_orm(user_1_post).dict(
+                        "attributes": PostAttributesBaseSchema.model_validate(user_1_post).model_dump(
                             include=set(queried_post_fields.split(",")),
                         ),
-                        "id": str(user_1_post.id),
+                        "id": f"{user_1_post.id}",
                         "relationships": {
-                            "comments": {"data": [{"id": str(user_2_comment.id), "type": "post_comment"}]},
+                            "comments": {
+                                "data": [
+                                    {
+                                        "id": f"{user_2_comment.id}",
+                                        "type": "post_comment",
+                                    },
+                                ],
+                            },
                         },
                         "type": "post",
                     },
                     {
                         "attributes": {},
-                        "id": str(user_1_comment.id),
+                        "id": f"{user_1_comment.id}",
                         "type": "post_comment",
                     },
                     {
                         "attributes": {},
-                        "id": str(user_2_comment.id),
+                        "id": f"{user_2_comment.id}",
                         "type": "post_comment",
                     },
                 ],
@@ -346,7 +346,7 @@ class TestGetUsersList:
         url = app.url_path_for("get_user_list")
 
         params = QueryParams([("fields[post]", "title")])
-        response = await client.get(url, params=str(params))
+        response = await client.get(url, params=f"{params}")
 
         assert response.status_code == status.HTTP_200_OK, response.text
         response_data = response.json()
@@ -354,223 +354,14 @@ class TestGetUsersList:
         assert response_data == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1),
-                    "id": str(user_1.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
             ],
             "jsonapi": {"version": "1.0"},
             "meta": {"count": 1, "totalPages": 1},
         }
-
-    def _get_clear_mock_calls(self, mock_obj) -> list[call]:
-        mock_calls = mock_obj.mock_calls
-        return [call_ for call_ in mock_calls if call_ not in [call.__len__(), call.__str__()]]
-
-    def _prepare_info_schema_calls_to_assert(self, mock_calls) -> list[call]:
-        calls_to_check = []
-        for wrapper_call in mock_calls:
-            kwargs = wrapper_call.kwargs
-            kwargs["includes"] = sorted(kwargs["includes"], key=lambda x: x)
-
-            calls_to_check.append(
-                call(
-                    *wrapper_call.args,
-                    **kwargs,
-                ),
-            )
-
-        return sorted(
-            calls_to_check,
-            key=lambda x: (x.kwargs["base_name"], x.kwargs["includes"]),
-        )
-
-    async def test_check_get_info_schema_cache(
-        self,
-        user_1: User,
-    ):
-        resource_type = "user_with_cache"
-        with suppress(KeyError):
-            RoutersJSONAPI.all_jsonapi_routers.pop(resource_type)
-
-        app_with_cache = build_app_custom(
-            model=User,
-            schema=UserSchema,
-            schema_in_post=UserInSchemaAllowIdOnPost,
-            schema_in_patch=UserPatchSchema,
-            resource_type=resource_type,
-            # set cache size to enable caching
-            max_cache_size=128,
-        )
-
-        target_func_name = "_get_info_from_schema_for_building"
-        url = app_with_cache.url_path_for(f"get_{resource_type}_list")
-        params = {
-            "include": "posts,posts.comments",
-        }
-
-        expected_len_with_cache = 6
-        expected_len_without_cache = 10
-
-        with patch.object(
-            SchemaBuilder,
-            target_func_name,
-            wraps=app_with_cache.jsonapi_routers.schema_builder._get_info_from_schema_for_building,
-        ) as wrapped_func:
-            async with AsyncClient(app=app_with_cache, base_url="http://test") as client:
-                response = await client.get(url, params=params)
-                assert response.status_code == status.HTTP_200_OK, response.text
-
-                calls_to_check = self._prepare_info_schema_calls_to_assert(self._get_clear_mock_calls(wrapped_func))
-
-                # there are no duplicated calls
-                assert calls_to_check == sorted(
-                    [
-                        call(
-                            base_name="UserSchema",
-                            schema=UserSchema,
-                            includes=["posts"],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="UserSchema",
-                            schema=UserSchema,
-                            includes=["posts", "posts.comments"],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="PostSchema",
-                            schema=PostSchema,
-                            includes=[],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="PostSchema",
-                            schema=PostSchema,
-                            includes=["comments"],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="PostCommentSchema",
-                            schema=PostCommentSchema,
-                            includes=[],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="PostCommentSchema",
-                            schema=PostCommentSchema,
-                            includes=["posts"],
-                            non_optional_relationships=False,
-                        ),
-                    ],
-                    key=lambda x: (x.kwargs["base_name"], x.kwargs["includes"]),
-                )
-                assert wrapped_func.call_count == expected_len_with_cache
-
-                response = await client.get(url, params=params)
-                assert response.status_code == status.HTTP_200_OK, response.text
-
-                # there are no new calls
-                assert wrapped_func.call_count == expected_len_with_cache
-
-        resource_type = "user_without_cache"
-        with suppress(KeyError):
-            RoutersJSONAPI.all_jsonapi_routers.pop(resource_type)
-
-        app_without_cache = build_app_custom(
-            model=User,
-            schema=UserSchema,
-            schema_in_post=UserInSchemaAllowIdOnPost,
-            schema_in_patch=UserPatchSchema,
-            resource_type=resource_type,
-            max_cache_size=0,
-        )
-
-        with patch.object(
-            SchemaBuilder,
-            target_func_name,
-            wraps=app_without_cache.jsonapi_routers.schema_builder._get_info_from_schema_for_building,
-        ) as wrapped_func:
-            async with AsyncClient(app=app_without_cache, base_url="http://test") as client:
-                response = await client.get(url, params=params)
-                assert response.status_code == status.HTTP_200_OK, response.text
-
-                calls_to_check = self._prepare_info_schema_calls_to_assert(self._get_clear_mock_calls(wrapped_func))
-
-                # there are duplicated calls
-                assert calls_to_check == sorted(
-                    [
-                        call(
-                            base_name="UserSchema",
-                            schema=UserSchema,
-                            includes=["posts"],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="UserSchema",
-                            schema=UserSchema,
-                            includes=["posts"],
-                            non_optional_relationships=False,
-                        ),  # duplicate
-                        call(
-                            base_name="UserSchema",
-                            schema=UserSchema,
-                            includes=["posts", "posts.comments"],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="PostSchema",
-                            schema=PostSchema,
-                            includes=[],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="PostSchema",
-                            schema=PostSchema,
-                            includes=[],
-                            non_optional_relationships=False,
-                        ),  # duplicate
-                        call(
-                            base_name="PostSchema",
-                            schema=PostSchema,
-                            includes=[],
-                            non_optional_relationships=False,
-                        ),  # duplicate
-                        call(
-                            base_name="PostSchema",
-                            schema=PostSchema,
-                            includes=["comments"],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="PostSchema",
-                            schema=PostSchema,
-                            includes=["comments"],
-                            non_optional_relationships=False,
-                        ),  # duplicate
-                        call(
-                            base_name="PostCommentSchema",
-                            schema=PostCommentSchema,
-                            includes=[],
-                            non_optional_relationships=False,
-                        ),
-                        call(
-                            base_name="PostCommentSchema",
-                            schema=PostCommentSchema,
-                            includes=["posts"],
-                            non_optional_relationships=False,
-                        ),  # duplicate
-                    ],
-                    key=lambda x: (x.kwargs["base_name"], x.kwargs["includes"]),
-                )
-
-                assert wrapped_func.call_count == expected_len_without_cache
-
-                response = await client.get(url, params=params)
-                assert response.status_code == status.HTTP_200_OK, response.text
-
-                # there are new calls
-                assert wrapped_func.call_count == expected_len_without_cache * 2
 
 
 class TestCreatePostAndComments:
@@ -580,8 +371,8 @@ class TestCreatePostAndComments:
         client: AsyncClient,
         user_1: User,
         user_2: User,
-        user_1_posts: List[Post],
-        user_2_posts: List[Post],
+        user_1_posts: list[Post],
+        user_2_posts: list[Post],
     ):
         call(
             base_name="UserSchema",
@@ -608,11 +399,11 @@ class TestCreatePostAndComments:
         included_users = response_data["included"]
         assert len(included_users) == len(users)
         for user_data, user in zip(included_users, users):
-            assert user_data["id"] == ViewBase.get_db_item_id(user)
+            assert user_data["id"] == f"{user.id}"
             assert user_data["type"] == "user"
 
         for post_data, post in zip(posts_data, posts):
-            assert post_data["id"] == ViewBase.get_db_item_id(post)
+            assert post_data["id"] == f"{post.id}"
             assert post_data["type"] == "post"
 
         all_posts_data = list(posts_data)
@@ -627,13 +418,12 @@ class TestCreatePostAndComments:
             assert len(posts_data) == len(posts)
             idx_start = next_idx
 
-            u1_relation = {
-                "id": ViewBase.get_db_item_id(user),
-                "type": "user",
-            }
             for post_data in posts_data:
                 user_relation = post_data["relationships"]["user"]
-                assert user_relation["data"] == u1_relation
+                assert user_relation["data"] == {
+                    "id": f"{user.id}",
+                    "type": "user",
+                }
 
     async def test_create_post_for_user(
         self,
@@ -646,7 +436,7 @@ class TestCreatePostAndComments:
         post_attributes = PostAttributesBaseSchema(
             title=fake.name(),
             body=fake.sentence(),
-        ).dict()
+        ).model_dump()
         post_create = {
             "data": {
                 "attributes": post_attributes,
@@ -654,7 +444,7 @@ class TestCreatePostAndComments:
                     "user": {
                         "data": {
                             "type": "user",
-                            "id": user_1.id,
+                            "id": f"{user_1.id}",
                         },
                     },
                 },
@@ -672,7 +462,7 @@ class TestCreatePostAndComments:
                 "user": {
                     "data": {
                         "type": "user",
-                        "id": str(user_1.id),
+                        "id": f"{user_1.id}",
                     },
                 },
             },
@@ -680,9 +470,9 @@ class TestCreatePostAndComments:
         included = response_data["included"]
         assert included == [
             {
-                "id": str(user_1.id),
+                "id": f"{user_1.id}",
                 "type": "user",
-                "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(),
+                "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(exclude_unset=True),
             },
         ]
 
@@ -698,7 +488,7 @@ class TestCreatePostAndComments:
         url = f"{url}?include=author,post,post.user"
         comment_attributes = PostCommentAttributesBaseSchema(
             text=fake.sentence(),
-        ).dict()
+        ).model_dump()
         comment_create = {
             "data": {
                 "attributes": comment_attributes,
@@ -706,13 +496,13 @@ class TestCreatePostAndComments:
                     "post": {
                         "data": {
                             "type": "post",
-                            "id": user_1_post.id,
+                            "id": f"{user_1_post.id}",
                         },
                     },
                     "author": {
                         "data": {
                             "type": "user",
-                            "id": user_2.id,
+                            "id": f"{user_2.id}",
                         },
                     },
                 },
@@ -731,13 +521,13 @@ class TestCreatePostAndComments:
                 "post": {
                     "data": {
                         "type": "post",
-                        "id": str(user_1_post.id),
+                        "id": f"{user_1_post.id}",
                     },
                 },
                 "author": {
                     "data": {
                         "type": "user",
-                        "id": str(user_2.id),
+                        "id": f"{user_2.id}",
                     },
                 },
             },
@@ -746,12 +536,12 @@ class TestCreatePostAndComments:
         assert included == [
             {
                 "type": "post",
-                "id": str(user_1_post.id),
-                "attributes": PostAttributesBaseSchema.from_orm(user_1_post).dict(),
+                "id": f"{user_1_post.id}",
+                "attributes": PostAttributesBaseSchema.model_validate(user_1_post).model_dump(),
                 "relationships": {
                     "user": {
                         "data": {
-                            "id": str(user_1.id),
+                            "id": f"{user_1.id}",
                             "type": "user",
                         },
                     },
@@ -759,13 +549,13 @@ class TestCreatePostAndComments:
             },
             {
                 "type": "user",
-                "id": str(user_1.id),
-                "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(),
+                "id": f"{user_1.id}",
+                "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
             },
             {
                 "type": "user",
-                "id": str(user_2.id),
-                "attributes": UserAttributesBaseSchema.from_orm(user_2).dict(),
+                "id": f"{user_2.id}",
+                "attributes": UserAttributesBaseSchema.model_validate(user_2).model_dump(),
             },
         ]
 
@@ -786,7 +576,7 @@ class TestCreatePostAndComments:
         url = app.url_path_for("get_post_comment_list")
         comment_attributes = PostCommentAttributesBaseSchema(
             text=fake.sentence(),
-        ).dict()
+        ).model_dump()
         comment_create = {
             "data": {
                 "attributes": comment_attributes,
@@ -794,10 +584,10 @@ class TestCreatePostAndComments:
                     "post": {
                         "data": {
                             "type": "post",
-                            "id": user_1_post.id,
+                            "id": f"{user_1_post.id}",
                         },
                     },
-                    # don't pass "author"
+                    # don"t pass "author"
                 },
             },
         }
@@ -807,14 +597,18 @@ class TestCreatePostAndComments:
         assert response_data == {
             "detail": [
                 {
-                    "loc": [
-                        "body",
-                        "data",
-                        "relationships",
-                        "author",
-                    ],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "input": {
+                        "post": {
+                            "data": {
+                                "id": f"{user_1_post.id}",
+                                "type": "post",
+                            },
+                        },
+                    },
+                    "loc": ["body", "data", "relationships", "author"],
+                    "msg": "Field required",
+                    "type": "missing",
+                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -827,13 +621,13 @@ class TestCreatePostAndComments:
         url = app.url_path_for("get_post_comment_list")
         comment_attributes = PostCommentAttributesBaseSchema(
             text=fake.sentence(),
-        ).dict()
+        ).model_dump()
         comment_create = {
             "data": {
                 "attributes": comment_attributes,
                 "relationships": {
-                    # don't pass "post"
-                    # don't pass "author"
+                    # don"t pass "post"
+                    # don"t pass "author"
                 },
             },
         }
@@ -843,24 +637,18 @@ class TestCreatePostAndComments:
         assert response_data == {
             "detail": [
                 {
-                    "loc": [
-                        "body",
-                        "data",
-                        "relationships",
-                        "post",
-                    ],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "input": {},
+                    "loc": ["body", "data", "relationships", "post"],
+                    "msg": "Field required",
+                    "type": "missing",
+                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
                 {
-                    "loc": [
-                        "body",
-                        "data",
-                        "relationships",
-                        "author",
-                    ],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "input": {},
+                    "loc": ["body", "data", "relationships", "author"],
+                    "msg": "Field required",
+                    "type": "missing",
+                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -873,11 +661,11 @@ class TestCreatePostAndComments:
         url = app.url_path_for("get_post_comment_list")
         comment_attributes = PostCommentAttributesBaseSchema(
             text=fake.sentence(),
-        ).dict()
+        ).model_dump()
         comment_create = {
             "data": {
                 "attributes": comment_attributes,
-                # don't pass "relationships" at all
+                # don"t pass "relationships" at all
             },
         }
         response = await client.post(url, json=comment_create)
@@ -886,13 +674,13 @@ class TestCreatePostAndComments:
         assert response_data == {
             "detail": [
                 {
-                    "loc": [
-                        "body",
-                        "data",
-                        "relationships",
-                    ],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "input": {
+                        "attributes": comment_attributes,
+                    },
+                    "loc": ["body", "data", "relationships"],
+                    "msg": "Field required",
+                    "type": "missing",
+                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -906,8 +694,8 @@ async def test_get_users_with_all_inner_relations(
     user_1_bio: UserBio,
     user_1_posts,
     user_1_post_for_comments: Post,
-    user_2_posts: List[Post],
-    user_1_comments_for_u2_posts: List[PostComment],
+    user_2_posts: list[Post],
+    user_1_comments_for_u2_posts: list[PostComment],
     user_2_comment_for_one_u1_post: PostComment,
 ):
     """
@@ -931,7 +719,7 @@ async def test_get_users_with_all_inner_relations(
     assert len(users_data) == len(users)
 
     assert "included" in response_data, response_data
-    included: List[Dict] = response_data["included"]
+    included: list[dict] = response_data["included"]
 
     included_data = {association_key(data): data for data in included}
 
@@ -939,7 +727,7 @@ async def test_get_users_with_all_inner_relations(
         users_data,
         [(user_1, user_1_posts, user_1_bio), (user_2, user_2_posts, None)],
     ):
-        assert user_data["id"] == ViewBase.get_db_item_id(user)
+        assert user_data["id"] == f"{user.id}"
         assert user_data["type"] == "user"
         user_relationships = user_data["relationships"]
         posts_relation = user_relationships["posts"]["data"]
@@ -954,7 +742,7 @@ async def test_get_users_with_all_inner_relations(
             continue
 
         assert bio_relation == {
-            "id": ViewBase.get_db_item_id(user_1_bio),
+            "id": f"{user_1_bio.id}",
             "type": "user_bio",
         }
 
@@ -964,7 +752,7 @@ async def test_get_users_with_all_inner_relations(
         (user_2_posts, user_1_comments_for_u2_posts, user_1),
     ]:
         for post, post_comment in zip(posts, comments):
-            post_data = included_data[("post", ViewBase.get_db_item_id(post))]
+            post_data = included_data[("post", f"{post.id}")]
             post_relationships = post_data["relationships"]
             assert "comments" in post_relationships
             post_comments_relation = post_relationships["comments"]["data"]
@@ -972,16 +760,16 @@ async def test_get_users_with_all_inner_relations(
             assert len(post_comments_relation) == len(post_comments)
             for comment_relation_data, comment in zip(post_comments_relation, post_comments):
                 assert comment_relation_data == {
-                    "id": ViewBase.get_db_item_id(comment),
+                    "id": f"{comment.id}",
                     "type": "post_comment",
                 }
 
-                comment_data = included_data[("post_comment", ViewBase.get_db_item_id(comment))]
+                comment_data = included_data[("post_comment", f"{comment.id}")]
                 assert comment_data["relationships"]["author"]["data"] == {
-                    "id": ViewBase.get_db_item_id(comment_author),
+                    "id": f"{comment_author.id}",
                     "type": "user",
                 }
-                assert ("user", ViewBase.get_db_item_id(comment_author)) in included_data
+                assert ("user", f"{comment_author.id}") in included_data
 
 
 async def test_many_to_many_load_inner_includes_to_parents(
@@ -1020,25 +808,25 @@ async def test_many_to_many_load_inner_includes_to_parents(
             (parent_3, []),
         ],
     ):
-        assert parent_data["id"] == ViewBase.get_db_item_id(parent)
+        assert parent_data["id"] == f"{parent.id}"
         assert parent_data["type"] == "parent"
 
         parent_relationships = parent_data["relationships"]
         parent_to_children_assocs = parent_relationships["children"]["data"]
         assert len(parent_to_children_assocs) == len(expected_assocs)
         for assoc_data, (assoc, child) in zip(parent_to_children_assocs, expected_assocs):
-            assert assoc_data["id"] == ViewBase.get_db_item_id(assoc)
+            assert assoc_data["id"] == f"{assoc.id}"
             assert assoc_data["type"] == "parent_child_association"
             assoc_key = association_key(assoc_data)
             assert assoc_key in included_data
             p_to_c_assoc_data = included_data[assoc_key]
             assert p_to_c_assoc_data["relationships"]["child"]["data"] == {
-                "id": ViewBase.get_db_item_id(child),
+                "id": f"{child.id}",
                 "type": "child",
             }
             assert p_to_c_assoc_data["attributes"]["extra_data"] == assoc.extra_data
 
-    assert ("child", ViewBase.get_db_item_id(child_4)) not in included_data
+    assert ("child", f"{child_4.id}") not in included_data
 
 
 class TestGetUserDetail:
@@ -1059,10 +847,10 @@ class TestGetUserDetail:
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "data": {
-                "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(
+                "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(
                     include=set(queried_user_fields.split(",")),
                 ),
-                "id": str(user_1.id),
+                "id": f"{user_1.id}",
                 "type": "user",
             },
             "jsonapi": {"version": "1.0"},
@@ -1072,7 +860,11 @@ class TestGetUserDetail:
 
 class TestUserWithPostsWithInnerIncludes:
     @mark.parametrize(
-        "include, expected_relationships_inner_relations, expect_user_include",
+        (
+            "include",
+            "expected_relationships_inner_relations",
+            "expect_user_include",
+        ),
         [
             (
                 ["posts", "posts.user"],
@@ -1129,14 +921,14 @@ class TestUserWithPostsWithInnerIncludes:
 
         assert result_data == [
             {
-                "id": str(user_1.id),
+                "id": f"{user_1.id}",
                 "type": resource_type,
-                "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(),
+                "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
                 "relationships": {
                     "posts": {
                         "data": [
                             # relationship info
-                            {"id": str(p.id), "type": "post"}
+                            {"id": f"{p.id}", "type": "post"}
                             # for every post
                             for p in user_1_posts
                         ],
@@ -1181,7 +973,7 @@ class TestUserWithPostsWithInnerIncludes:
         # XXX
         if not expect_user_include:
             expected_includes.pop("user", None)
-        assert included_as_map == expected_includes
+        assert dict(included_as_map) == expected_includes
 
     def prepare_expected_includes(
         self,
@@ -1190,24 +982,24 @@ class TestUserWithPostsWithInnerIncludes:
         user_1_posts: list[PostComment],
         user_2_comment_for_one_u1_post: PostComment,
     ):
-        expected_includes = {
+        return {
             "post": [
                 #
                 {
-                    "id": str(p.id),
+                    "id": f"{p.id}",
                     "type": "post",
-                    "attributes": PostAttributesBaseSchema.from_orm(p).dict(),
+                    "attributes": PostAttributesBaseSchema.model_validate(p).model_dump(),
                     "relationships": {
                         "user": {
                             "data": {
-                                "id": str(user_1.id),
+                                "id": f"{user_1.id}",
                                 "type": "user",
                             },
                         },
                         "comments": {
                             "data": [
                                 {
-                                    "id": str(user_2_comment_for_one_u1_post.id),
+                                    "id": f"{user_2_comment_for_one_u1_post.id}",
                                     "type": "post_comment",
                                 },
                             ]
@@ -1221,13 +1013,15 @@ class TestUserWithPostsWithInnerIncludes:
             ],
             "post_comment": [
                 {
-                    "id": str(user_2_comment_for_one_u1_post.id),
+                    "id": f"{user_2_comment_for_one_u1_post.id}",
                     "type": "post_comment",
-                    "attributes": PostCommentAttributesBaseSchema.from_orm(user_2_comment_for_one_u1_post).dict(),
+                    "attributes": PostCommentAttributesBaseSchema.model_validate(
+                        user_2_comment_for_one_u1_post,
+                    ).model_dump(),
                     "relationships": {
                         "author": {
                             "data": {
-                                "id": str(user_2.id),
+                                "id": f"{user_2.id}",
                                 "type": "user",
                             },
                         },
@@ -1236,14 +1030,12 @@ class TestUserWithPostsWithInnerIncludes:
             ],
             "user": [
                 {
-                    "id": str(user_2.id),
+                    "id": f"{user_2.id}",
                     "type": "user",
-                    "attributes": UserAttributesBaseSchema.from_orm(user_2).dict(),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_2).model_dump(),
                 },
             ],
         }
-
-        return expected_includes
 
 
 async def test_method_not_allowed(app: FastAPI, client: AsyncClient):
@@ -1261,8 +1053,8 @@ async def test_get_list_view_generic(app: FastAPI, client: AsyncClient, user_1: 
     users_data = response_json["data"]
     assert len(users_data) == 1, users_data
     user_data = users_data[0]
-    assert user_data["id"] == str(user_1.id)
-    assert user_data["attributes"] == UserAttributesBaseSchema.from_orm(user_1)
+    assert user_data["id"] == f"{user_1.id}"
+    assert user_data["attributes"] == UserAttributesBaseSchema.model_validate(user_1).model_dump(exclude_none=True)
 
 
 async def test_get_user_not_found(app: FastAPI, client: AsyncClient):
@@ -1290,7 +1082,7 @@ class TestCreateObjects:
                     name=fake.name(),
                     age=fake.pyint(),
                     email=fake.email(),
-                ).dict(),
+                ).model_dump(),
             },
         }
         url = app.url_path_for("get_user_list")
@@ -1311,9 +1103,15 @@ class TestCreateObjects:
                 "attributes": UserBioAttributesBaseSchema(
                     birth_city=fake.word(),
                     favourite_movies=fake.sentence(),
-                    keys_to_ids_list={"foobar": [1, 2, 3], "spameggs": [2, 3, 4]},
-                ).dict(),
-                "relationships": {"user": {"data": {"type": "user", "id": user_1.id}}},
+                ).model_dump(),
+                "relationships": {
+                    "user": {
+                        "data": {
+                            "type": "user",
+                            "id": f"{user_1.id}",
+                        },
+                    },
+                },
             },
         }
         url = app.url_path_for("get_user_bio_list")
@@ -1329,8 +1127,8 @@ class TestCreateObjects:
         included_user = included_data[0]
         assert isinstance(included_user, dict), included_user
         assert included_user["type"] == "user"
-        assert included_user["id"] == str(user_1.id)
-        assert included_user["attributes"] == UserAttributesBaseSchema.from_orm(user_1)
+        assert included_user["id"] == f"{user_1.id}"
+        assert included_user["attributes"] == UserAttributesBaseSchema.model_validate(user_1).model_dump()
 
     async def test_create_object_with_to_many_relationship_and_fetch_include(
         self,
@@ -1345,16 +1143,16 @@ class TestCreateObjects:
                     name=fake.name(),
                     age=fake.pyint(),
                     email=fake.email(),
-                ).dict(),
+                ).model_dump(),
                 "relationships": {
                     "computers": {
                         "data": [
                             {
-                                "id": computer_1.id,
+                                "id": f"{computer_1.id}",
                                 "type": "computer",
                             },
                             {
-                                "id": computer_2.id,
+                                "id": f"{computer_2.id}",
                                 "type": "computer",
                             },
                         ],
@@ -1377,11 +1175,11 @@ class TestCreateObjects:
                     "computers": {
                         "data": [
                             {
-                                "id": str(computer_1.id),
+                                "id": f"{computer_1.id}",
                                 "type": "computer",
                             },
                             {
-                                "id": str(computer_2.id),
+                                "id": f"{computer_2.id}",
                                 "type": "computer",
                             },
                         ],
@@ -1392,12 +1190,12 @@ class TestCreateObjects:
             "included": [
                 {
                     "attributes": {"name": computer_1.name},
-                    "id": str(computer_1.id),
+                    "id": f"{computer_1.id}",
                     "type": "computer",
                 },
                 {
                     "attributes": {"name": computer_2.name},
-                    "id": str(computer_2.id),
+                    "id": f"{computer_2.id}",
                     "type": "computer",
                 },
             ],
@@ -1419,23 +1217,23 @@ class TestCreateObjects:
                     name=fake.name(),
                     age=fake.pyint(),
                     email=fake.email(),
-                ).dict(),
+                ).model_dump(),
                 "relationships": {
                     "computers": {
                         "data": [
                             {
-                                "id": computer_1.id,
+                                "id": f"{computer_1.id}",
                                 "type": "computer",
                             },
                             {
-                                "id": computer_2.id,
+                                "id": f"{computer_2.id}",
                                 "type": "computer",
                             },
                         ],
                     },
                     "workplace": {
                         "data": {
-                            "id": str(workplace_1.id),
+                            "id": f"{workplace_1.id}",
                             "type": "workplace",
                         },
                     },
@@ -1457,18 +1255,18 @@ class TestCreateObjects:
                     "computers": {
                         "data": [
                             {
-                                "id": str(computer_1.id),
+                                "id": f"{computer_1.id}",
                                 "type": "computer",
                             },
                             {
-                                "id": str(computer_2.id),
+                                "id": f"{computer_2.id}",
                                 "type": "computer",
                             },
                         ],
                     },
                     "workplace": {
                         "data": {
-                            "id": str(workplace_1.id),
+                            "id": f"{workplace_1.id}",
                             "type": "workplace",
                         },
                     },
@@ -1478,17 +1276,17 @@ class TestCreateObjects:
             "included": [
                 {
                     "attributes": {"name": computer_1.name},
-                    "id": str(computer_1.id),
+                    "id": f"{computer_1.id}",
                     "type": "computer",
                 },
                 {
                     "attributes": {"name": computer_2.name},
-                    "id": str(computer_2.id),
+                    "id": f"{computer_2.id}",
                     "type": "computer",
                 },
                 {
                     "attributes": {"name": workplace_1.name},
-                    "id": str(workplace_1.id),
+                    "id": f"{workplace_1.id}",
                     "type": "workplace",
                 },
             ],
@@ -1503,7 +1301,7 @@ class TestCreateObjects:
                     name=fake.name(),
                     age=fake.pyint(),
                     email=fake.email(),
-                ).dict(),
+                ).model_dump(),
             },
         }
         url = app.url_path_for("get_user_list")
@@ -1520,7 +1318,7 @@ class TestCreateObjects:
                     name=fake.name(),
                     age=fake.pyint(),
                     email=fake.email(),
-                ).dict(),
+                ).model_dump(),
             },
         }
         app.url_path_for("get_user_list")
@@ -1549,7 +1347,7 @@ class TestCreateObjects:
             resource_type=resource_type,
         )
 
-        new_id = str(fake.pyint(100, 999))
+        new_id = f"{fake.pyint(100, 999)}"
         attrs = UserAttributesBaseSchema(
             name=fake.name(),
             age=fake.pyint(),
@@ -1557,7 +1355,7 @@ class TestCreateObjects:
         )
         create_user_body = {
             "data": {
-                "attributes": attrs.dict(),
+                "attributes": attrs.model_dump(),
                 "id": new_id,
             },
         }
@@ -1568,7 +1366,7 @@ class TestCreateObjects:
             assert res.status_code == status.HTTP_201_CREATED, res.text
             assert res.json() == {
                 "data": {
-                    "attributes": attrs.dict(),
+                    "attributes": attrs.model_dump(),
                     "id": new_id,
                     "type": resource_type,
                 },
@@ -1592,7 +1390,7 @@ class TestCreateObjects:
         """
         resource_type = "custom_uuid_item"
 
-        new_id = str(uuid4())
+        new_id = f"{uuid4()}"
         create_attributes = CustomUUIDItemAttributesSchema(
             extra_id=uuid4(),
         )
@@ -1620,7 +1418,7 @@ class TestCreateObjects:
         resource_type = "self_relationship"
         app = build_app_custom(
             model=SelfRelationship,
-            schema=SelfRelationshipSchema,
+            schema=SelfRelationshipAttributesSchema,
             resource_type=resource_type,
         )
 
@@ -1675,7 +1473,9 @@ class TestCreateObjects:
             assert (child_object_id := response_json["data"].get("id"))
             assert res.json() == {
                 "data": {
-                    "attributes": {"name": "child"},
+                    "attributes": {
+                        "name": "child",
+                    },
                     "id": child_object_id,
                     "relationships": {
                         "parent_object": {
@@ -1689,7 +1489,9 @@ class TestCreateObjects:
                 },
                 "included": [
                     {
-                        "attributes": {"name": "parent"},
+                        "attributes": {
+                            "name": "parent",
+                        },
                         "id": parent_object_id,
                         "type": "self_relationship",
                     },
@@ -1728,15 +1530,13 @@ class TestCreateObjects:
             response_json = res.json()
 
             assert (entity_id := response_json["data"]["id"])
-            assert response_json == {
-                "meta": None,
-                "jsonapi": {"version": "1.0"},
-                "data": {
-                    "type": resource_type,
-                    "attributes": {"timestamp": create_timestamp.isoformat()},
-                    "id": entity_id,
-                },
-            }
+            assert (
+                # rec
+                ContainsTimestampAttrsSchema(**response_json["data"]["attributes"])
+                ==
+                # ex
+                ContainsTimestampAttrsSchema(timestamp=create_timestamp)
+            )
 
             # noinspection PyTypeChecker
             stms = select(ContainsTimestamp).where(ContainsTimestamp.id == int(entity_id))
@@ -1761,17 +1561,14 @@ class TestCreateObjects:
             # successfully filtered
             res = await client.get(url, params=params)
             assert res.status_code == status.HTTP_200_OK, res.text
-            assert res.json() == {
-                "meta": {"count": 1, "totalPages": 1},
-                "jsonapi": {"version": "1.0"},
-                "data": [
-                    {
-                        "type": resource_type,
-                        "attributes": {"timestamp": expected_response_timestamp},
-                        "id": entity_id,
-                    },
-                ],
-            }
+            response_json = res.json()
+            assert (
+                # rec
+                ContainsTimestampAttrsSchema(**response_json["data"][0]["attributes"])
+                ==
+                # ex
+                ContainsTimestampAttrsSchema(timestamp=expected_response_timestamp)
+            )
 
             # check filter really work
             params = {
@@ -1801,7 +1598,7 @@ class TestCreateObjects:
         )
         create_user_body = {
             "data": {
-                "attributes": user_attrs_schema.dict(),
+                "attributes": user_attrs_schema.model_dump(),
             },
         }
         queried_user_fields = "name"
@@ -1815,7 +1612,7 @@ class TestCreateObjects:
         assert response_data["data"].pop("id")
         assert response_data == {
             "data": {
-                "attributes": user_attrs_schema.dict(include=set(queried_user_fields.split(","))),
+                "attributes": user_attrs_schema.model_dump(include=set(queried_user_fields.split(","))),
                 "type": "user",
             },
             "jsonapi": {"version": "1.0"},
@@ -1834,11 +1631,11 @@ class TestPatchObjects:
             name=fake.name(),
             age=fake.pyint(),
             email=fake.email(),
-        ).dict()
+        ).model_dump()
 
         patch_user_body = {
             "data": {
-                "id": user_1.id,
+                "id": f"{user_1.id}",
                 "attributes": new_attrs,
             },
         }
@@ -1849,7 +1646,7 @@ class TestPatchObjects:
         assert res.json() == {
             "data": {
                 "attributes": new_attrs,
-                "id": str(user_1.id),
+                "id": f"{user_1.id}",
                 "type": "user",
             },
             "jsonapi": {"version": "1.0"},
@@ -1876,11 +1673,11 @@ class TestPatchObjects:
             age=fake.pyint(),
             email=fake.email(),
             attr_which_is_not_presented_in_model=fake.name(),
-        ).dict()
+        ).model_dump()
 
         patch_user_body = {
             "data": {
-                "id": user_1.id,
+                "id": f"{user_1.id}",
                 "attributes": new_attrs,
             },
         }
@@ -1906,8 +1703,8 @@ class TestPatchObjects:
         )
         create_body = {
             "data": {
-                "attributes": new_attributes.dict(),
-                "id": user_1.id,
+                "attributes": new_attributes.model_dump(),
+                "id": f"{user_1.id}",
             },
         }
 
@@ -1918,8 +1715,8 @@ class TestPatchObjects:
         assert res.status_code == status.HTTP_200_OK, res.text
         assert res.json() == {
             "data": {
-                "attributes": UserAttributesBaseSchema(**new_attributes.dict()).dict(),
-                "id": str(user_1.id),
+                "attributes": UserAttributesBaseSchema(**new_attributes.model_dump()).model_dump(),
+                "id": f"{user_1.id}",
                 "type": resource_type,
             },
             "jsonapi": {"version": "1.0"},
@@ -1948,8 +1745,8 @@ class TestPatchObjects:
 
         patch_user_body = {
             "data": {
-                "id": user_1.id,
-                "attributes": new_attrs.dict(),
+                "id": f"{user_1.id}",
+                "attributes": new_attrs.model_dump(),
             },
         }
         queried_user_fields = "name"
@@ -1960,8 +1757,8 @@ class TestPatchObjects:
         assert res.status_code == status.HTTP_200_OK, res.text
         assert res.json() == {
             "data": {
-                "attributes": new_attrs.dict(include=set(queried_user_fields.split(","))),
-                "id": str(user_1.id),
+                "attributes": new_attrs.model_dump(include=set(queried_user_fields.split(","))),
+                "id": f"{user_1.id}",
                 "type": "user",
             },
             "jsonapi": {"version": "1.0"},
@@ -2005,18 +1802,18 @@ class TestPatchObjects:
             update_body = {
                 "type": resource_type,
                 "data": {
-                    "id": new_top_item.id,
+                    "id": f"{new_top_item.id}",
                     "attributes": {},
                     "relationships": {
                         "sub_items": {
                             "data": [
                                 {
                                     "type": resource_type,
-                                    "id": sub_item_1.id,
+                                    "id": f"{sub_item_1.id}",
                                 },
                                 {
                                     "type": resource_type,
-                                    "id": sub_item_2.id,
+                                    "id": f"{sub_item_2.id}",
                                 },
                             ],
                         },
@@ -2063,17 +1860,17 @@ class TestPatchObjectRelationshipsToOne:
             name=fake.name(),
             age=fake.pyint(),
             email=fake.email(),
-        ).dict()
+        ).model_dump()
 
         patch_user_body = {
             "data": {
-                "id": user_1.id,
+                "id": f"{user_1.id}",
                 "attributes": new_attrs,
                 "relationships": {
                     "workplace": {
                         "data": {
                             "type": "workplace",
-                            "id": workplace_1.id,
+                            "id": f"{workplace_1.id}",
                         },
                     },
                 },
@@ -2089,12 +1886,12 @@ class TestPatchObjectRelationshipsToOne:
         assert res.json() == {
             "data": {
                 "attributes": new_attrs,
-                "id": str(user_1.id),
+                "id": f"{user_1.id}",
                 "relationships": {
                     "workplace": {
                         "data": {
                             "type": "workplace",
-                            "id": str(workplace_1.id),
+                            "id": f"{workplace_1.id}",
                         },
                     },
                 },
@@ -2102,8 +1899,10 @@ class TestPatchObjectRelationshipsToOne:
             },
             "included": [
                 {
-                    "attributes": {"name": workplace_1.name},
-                    "id": str(workplace_1.id),
+                    "attributes": {
+                        "name": workplace_1.name,
+                    },
+                    "id": f"{workplace_1.id}",
                     "type": "workplace",
                 },
             ],
@@ -2111,7 +1910,7 @@ class TestPatchObjectRelationshipsToOne:
             "meta": None,
         }
 
-        patch_user_body["data"]["relationships"]["workplace"]["data"]["id"] = workplace_2.id
+        patch_user_body["data"]["relationships"]["workplace"]["data"]["id"] = f"{workplace_2.id}"
 
         # update relationship with patch endpoint
         res = await client.patch(url, json=patch_user_body)
@@ -2120,12 +1919,12 @@ class TestPatchObjectRelationshipsToOne:
         assert res.json() == {
             "data": {
                 "attributes": new_attrs,
-                "id": str(user_1.id),
+                "id": f"{user_1.id}",
                 "relationships": {
                     "workplace": {
                         "data": {
                             "type": "workplace",
-                            "id": str(workplace_2.id),
+                            "id": f"{workplace_2.id}",
                         },
                     },
                 },
@@ -2133,8 +1932,10 @@ class TestPatchObjectRelationshipsToOne:
             },
             "included": [
                 {
-                    "attributes": {"name": workplace_2.name},
-                    "id": str(workplace_2.id),
+                    "attributes": {
+                        "name": workplace_2.name,
+                    },
+                    "id": f"{workplace_2.id}",
                     "type": "workplace",
                 },
             ],
@@ -2156,13 +1957,13 @@ class TestPatchObjectRelationshipsToOne:
 
         patch_user_bio_body = {
             "data": {
-                "id": user_1_bio.id,
-                "attributes": UserBioAttributesBaseSchema.from_orm(user_1_bio).dict(),
+                "id": f"{user_1_bio.id}",
+                "attributes": UserBioAttributesBaseSchema.model_validate(user_1_bio).model_dump(),
                 "relationships": {
                     "user": {
                         "data": {
                             "type": "user",
-                            "id": user_2.id,
+                            "id": f"{user_2.id}",
                         },
                     },
                 },
@@ -2181,7 +1982,7 @@ class TestPatchObjectRelationshipsToOne:
                     "status_code": status.HTTP_400_BAD_REQUEST,
                     "title": "Bad Request",
                     "meta": {
-                        "id": str(user_1_bio.id),
+                        "id": f"{user_1_bio.id}",
                         "type": "user_bio",
                     },
                 },
@@ -2198,12 +1999,12 @@ class TestPatchObjectRelationshipsToOne:
             name=fake.name(),
             age=fake.pyint(),
             email=fake.email(),
-        ).dict()
+        ).model_dump()
 
         fake_relationship_id = "1"
         patch_user_body = {
             "data": {
-                "id": user_1.id,
+                "id": f"{user_1.id}",
                 "attributes": new_attrs,
                 "relationships": {
                     "workplace": {
@@ -2239,16 +2040,14 @@ class TestPatchObjectRelationshipsToOne:
         client: AsyncClient,
         user_1: User,
     ):
-        user_id = user_1.id
-        another_id = 0
         patch_user_body = {
             "data": {
-                "id": user_id,
-                "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(),
+                "id": f"{user_1.id}",
+                "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
             },
         }
 
-        url = app.url_path_for("get_user_detail", obj_id=another_id)
+        url = app.url_path_for("get_user_detail", obj_id=0)
         res = await client.patch(url, json=patch_user_body)
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.text
         assert res.json() == {
@@ -2269,7 +2068,7 @@ class TestPatchObjectRelationshipsToOne:
 
         app = build_app_custom(
             model=SelfRelationship,
-            schema=SelfRelationshipSchema,
+            schema=SelfRelationshipAttributesSchema,
             resource_type=resource_type,
         )
 
@@ -2284,7 +2083,7 @@ class TestPatchObjectRelationshipsToOne:
             expected_name = fake.name()
             update_body = {
                 "data": {
-                    "id": str(child_obj.id),
+                    "id": f"{child_obj.id}",
                     "attributes": {
                         "name": expected_name,
                     },
@@ -2303,9 +2102,13 @@ class TestPatchObjectRelationshipsToOne:
             assert res.status_code == status.HTTP_200_OK, res.text
             assert res.json() == {
                 "data": {
-                    "attributes": SelfRelationshipAttributesSchema(name=expected_name).dict(),
-                    "id": str(child_obj.id),
-                    "relationships": {"parent_object": {"data": None}},
+                    "attributes": SelfRelationshipAttributesSchema(name=expected_name).model_dump(exclude_unset=True),
+                    "id": f"{child_obj.id}",
+                    "relationships": {
+                        "parent_object": {
+                            "data": None,
+                        },
+                    },
                     "type": "self_relationship",
                 },
                 "included": [],
@@ -2330,11 +2133,11 @@ class TestPatchRelationshipsToMany:
             name=fake.name(),
             age=fake.pyint(),
             email=fake.email(),
-        ).dict()
+        ).model_dump()
 
         patch_user_body = {
             "data": {
-                "id": user_1.id,
+                "id": f"{user_1.id}",
                 "attributes": new_attrs,
                 "relationships": {
                     "computers": {
@@ -2342,12 +2145,12 @@ class TestPatchRelationshipsToMany:
                             {
                                 "type": "computer",
                                 # test id as int
-                                "id": computer_1.id,
+                                "id": f"{computer_1.id}",
                             },
                             {
                                 "type": "computer",
                                 # test id as str
-                                "id": str(computer_2.id),
+                                "id": f"{computer_2.id}",
                             },
                         ],
                     },
@@ -2363,17 +2166,17 @@ class TestPatchRelationshipsToMany:
         assert res.json() == {
             "data": {
                 "attributes": new_attrs,
-                "id": str(user_1.id),
+                "id": f"{user_1.id}",
                 "relationships": {
                     "computers": {
                         "data": [
                             {
                                 "type": "computer",
-                                "id": str(computer_1.id),
+                                "id": f"{computer_1.id}",
                             },
                             {
                                 "type": "computer",
-                                "id": str(computer_2.id),
+                                "id": f"{computer_2.id}",
                             },
                         ],
                     },
@@ -2382,13 +2185,17 @@ class TestPatchRelationshipsToMany:
             },
             "included": [
                 {
-                    "attributes": {"name": computer_1.name},
-                    "id": str(computer_1.id),
+                    "attributes": {
+                        "name": computer_1.name,
+                    },
+                    "id": f"{computer_1.id}",
                     "type": "computer",
                 },
                 {
-                    "attributes": {"name": computer_2.name},
-                    "id": str(computer_2.id),
+                    "attributes": {
+                        "name": computer_2.name,
+                    },
+                    "id": f"{computer_2.id}",
                     "type": "computer",
                 },
             ],
@@ -2400,7 +2207,7 @@ class TestPatchRelationshipsToMany:
             "data": [
                 {
                     "type": "computer",
-                    "id": str(computer_1.id),
+                    "id": f"{computer_1.id}",
                 },
             ],
         }
@@ -2412,13 +2219,13 @@ class TestPatchRelationshipsToMany:
         assert res.json() == {
             "data": {
                 "attributes": new_attrs,
-                "id": str(user_1.id),
+                "id": f"{user_1.id}",
                 "relationships": {
                     "computers": {
                         "data": [
                             {
                                 "type": "computer",
-                                "id": str(computer_1.id),
+                                "id": f"{computer_1.id}",
                             },
                         ],
                     },
@@ -2427,8 +2234,10 @@ class TestPatchRelationshipsToMany:
             },
             "included": [
                 {
-                    "attributes": {"name": computer_1.name},
-                    "id": str(computer_1.id),
+                    "attributes": {
+                        "name": computer_1.name,
+                    },
+                    "id": f"{computer_1.id}",
                     "type": "computer",
                 },
             ],
@@ -2448,25 +2257,25 @@ class TestPatchRelationshipsToMany:
             name=fake.name(),
             age=fake.pyint(),
             email=fake.email(),
-        ).dict()
+        ).model_dump()
 
         fake_computer_id = fake.pyint(min_value=1000, max_value=9999)
         assert fake_computer_id != computer_2.id
 
         patch_user_body = {
             "data": {
-                "id": user_1.id,
+                "id": f"{user_1.id}",
                 "attributes": new_attrs,
                 "relationships": {
                     "computers": {
                         "data": [
                             {
                                 "type": "computer",
-                                "id": str(computer_1.id),
+                                "id": f"{computer_1.id}",
                             },
                             {
                                 "type": "computer",
-                                "id": fake_computer_id,
+                                "id": f"{fake_computer_id}",
                             },
                         ],
                     },
@@ -2483,7 +2292,7 @@ class TestPatchRelationshipsToMany:
         assert res.json() == {
             "errors": [
                 {
-                    "detail": "Objects for Computer with ids: {" + str(fake_computer_id) + "} not found",
+                    "detail": f"Objects for Computer with ids: [{fake_computer_id}] not found",
                     "source": {"pointer": "/data"},
                     "status_code": status.HTTP_404_NOT_FOUND,
                     "title": "Related object not found.",
@@ -2498,7 +2307,7 @@ class TestPatchRelationshipsToMany:
 
         app = build_app_custom(
             model=SelfRelationship,
-            schema=SelfRelationshipSchema,
+            schema=SelfRelationshipAttributesSchema,
             resource_type=resource_type,
         )
 
@@ -2516,13 +2325,13 @@ class TestPatchRelationshipsToMany:
             expected_name = fake.name()
             update_body = {
                 "data": {
-                    "id": str(parent_obj.id),
+                    "id": f"{parent_obj.id}",
                     "attributes": {
                         "name": expected_name,
                     },
                     "relationships": {
                         "children_objects": {
-                            "data": None,
+                            "data": [],
                         },
                     },
                 },
@@ -2535,8 +2344,8 @@ class TestPatchRelationshipsToMany:
             assert res.status_code == status.HTTP_200_OK, res.text
             assert res.json() == {
                 "data": {
-                    "attributes": SelfRelationshipAttributesSchema(name=expected_name).dict(),
-                    "id": str(parent_obj.id),
+                    "attributes": SelfRelationshipAttributesSchema(name=expected_name).model_dump(exclude_unset=True),
+                    "id": f"{parent_obj.id}",
                     "relationships": {"children_objects": {"data": []}},
                     "type": "self_relationship",
                 },
@@ -2604,13 +2413,13 @@ class TestDeleteObjects:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1),
-                    "id": str(user_1.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_3),
-                    "id": str(user_3.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_3).model_dump(),
+                    "id": f"{user_3.id}",
                     "type": "user",
                 },
             ],
@@ -2623,8 +2432,8 @@ class TestDeleteObjects:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_2),
-                    "id": str(user_2.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_2).model_dump(),
+                    "id": f"{user_2.id}",
                     "type": "user",
                 },
             ],
@@ -2647,17 +2456,17 @@ class TestDeleteObjects:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(
                         include=set(queried_user_fields.split(",")),
                     ),
-                    "id": str(user_1.id),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_2).dict(
+                    "attributes": UserAttributesBaseSchema.model_validate(user_2).model_dump(
                         include=set(queried_user_fields.split(",")),
                     ),
-                    "id": str(user_2.id),
+                    "id": f"{user_2.id}",
                     "type": "user",
                 },
             ],
@@ -2719,7 +2528,7 @@ class TestOpenApi:
 
     async def test_openapi_for_client_can_set_id(self):
         class Schema(BaseModel):
-            id: UUID = Field(client_can_set_id=True)
+            id: Annotated[UUID, ClientCanSetId()]
 
         app = build_app_custom(
             model=User,
@@ -2772,8 +2581,8 @@ class TestFilters:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(),
-                    "id": str(user_1.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
             ],
@@ -2804,8 +2613,8 @@ class TestFilters:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(),
-                    "id": str(user_1.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
             ],
@@ -2865,7 +2674,7 @@ class TestFilters:
         response_json = response.json()
 
         assert len(data := response_json["data"]) == 1
-        assert data[0]["id"] == str(target_user.id)
+        assert data[0]["id"] == f"{target_user.id}"
         assert data[0]["attributes"]["email"] == target_user.email
 
     async def test_filter_by_null_error_when_null_is_not_possible_value(
@@ -2925,18 +2734,8 @@ class TestFilters:
 
         assert user_1.id != user_2.id
 
-        def lower_equals_sql_filter(
-            schema_field: ModelField,
-            model_column: InstrumentedAttribute,
-            value: str,
-            operator: str,
-        ):
-            return func.lower(model_column) == func.lower(value)
-
         class UserWithEmailFieldSchema(UserAttributesBaseSchema):
-            email: str = Field(
-                _lower_equals_sql_filter_=lower_equals_sql_filter,
-            )
+            email: Annotated[str, sql_filter_lower_equals]
 
         app = build_app_custom(
             model=User,
@@ -2966,9 +2765,9 @@ class TestFilters:
 
         assert len(response_data) == 1
         assert response_data[0] == {
-            "id": str(user_1.id),
+            "id": f"{user_1.id}",
             "type": resource_type,
-            "attributes": UserWithEmailFieldSchema.from_orm(user_1).dict(),
+            "attributes": UserWithEmailFieldSchema.model_validate(user_1).model_dump(),
         }
 
     async def test_custom_sql_filter_lower_string_old_style_with_joins(
@@ -2982,18 +2781,8 @@ class TestFilters:
 
         assert user_1.id != user_2.id
 
-        def lower_equals_sql_filter(
-            schema_field: ModelField,
-            model_column: InstrumentedAttribute,
-            value: str,
-            operator: str,
-        ):
-            return func.lower(model_column) == func.lower(value), []
-
         class UserWithEmailFieldFilterSchema(UserAttributesBaseSchema):
-            email: str = Field(
-                _lower_equals_sql_filter_=lower_equals_sql_filter,
-            )
+            email: Annotated[str, sql_filter_lower_equals]
 
         app = build_app_custom(
             model=User,
@@ -3023,16 +2812,10 @@ class TestFilters:
 
         assert len(response_data) == 1
         assert response_data[0] == {
-            "id": str(user_1.id),
+            "id": f"{user_1.id}",
             "type": resource_type,
-            "attributes": UserWithEmailFieldFilterSchema.from_orm(user_1).dict(),
+            "attributes": UserWithEmailFieldFilterSchema.model_validate(user_1).model_dump(),
         }
-        assert any(
-            # str from logs
-            "Please return only filter expression from now on" in record.msg
-            # check all records
-            for record in caplog.records
-        )
 
     async def test_custom_sql_filter_invalid_result(
         self,
@@ -3042,18 +2825,8 @@ class TestFilters:
     ):
         resource_type = "user_with_custom_invalid_sql_filter"
 
-        def returns_invalid_number_of_params_filter(
-            schema_field: ModelField,
-            model_column: InstrumentedAttribute,
-            value: str,
-            operator: str,
-        ):
-            return 1, 2, 3
-
         class UserWithInvalidEmailFieldFilterSchema(UserAttributesBaseSchema):
-            email: str = Field(
-                _custom_broken_filter_sql_filter_=returns_invalid_number_of_params_filter,
-            )
+            email: str
 
         app = build_app_custom(
             model=User,
@@ -3061,12 +2834,14 @@ class TestFilters:
             resource_type=resource_type,
         )
 
+        field_name = "email"
+        field_op = "custom_broken_filter"
         params = {
             "filter": json.dumps(
                 [
                     {
-                        "name": "email",
-                        "op": "custom_broken_filter",
+                        "name": field_name,
+                        "op": field_op,
                         "val": "qwerty",
                     },
                 ],
@@ -3079,7 +2854,7 @@ class TestFilters:
             assert response.json() == {
                 "errors": [
                     {
-                        "detail": "Custom sql filter backend error.",
+                        "detail": f"Field {field_name!r} has no operator {field_op!r}",
                         "source": {"parameter": "filters"},
                         "status_code": status.HTTP_400_BAD_REQUEST,
                         "title": "Invalid filters querystring parameter.",
@@ -3116,13 +2891,13 @@ class TestFilters:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1),
-                    "id": str(user_1.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_3),
-                    "id": str(user_3.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_3).model_dump(),
+                    "id": f"{user_3.id}",
                     "type": "user",
                 },
             ],
@@ -3164,8 +2939,8 @@ class TestFilters:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1),
-                    "id": str(user_1.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
             ],
@@ -3193,7 +2968,7 @@ class TestFilters:
                         ],
                     },
                     {
-                        "name": "name",
+                        "name": "id",
                         "op": "eq",
                         "val": user_2.id,
                     },
@@ -3275,18 +3050,18 @@ class TestFilters:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1),
-                    "id": str(user_1.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_2),
-                    "id": str(user_2.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_2).model_dump(),
+                    "id": f"{user_2.id}",
                     "type": "user",
                 },
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_4),
-                    "id": str(user_4.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_4).model_dump(),
+                    "id": f"{user_4.id}",
                     "type": "user",
                 },
             ],
@@ -3334,8 +3109,8 @@ class TestFilters:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": UserAttributesBaseSchema.from_orm(user_1),
-                    "id": str(user_1.id),
+                    "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
             ],
@@ -3402,7 +3177,7 @@ class TestFilters:
         if filter_kind == "small":
             params.update(
                 {
-                    "filter[extra_id]": str(extra_id),
+                    "filter[extra_id]": f"{extra_id}",
                 },
             )
         else:
@@ -3413,7 +3188,7 @@ class TestFilters:
                             {
                                 "name": "extra_id",
                                 "op": "eq",
-                                "val": str(extra_id),
+                                "val": f"{extra_id}",
                             },
                         ],
                     ).decode(),
@@ -3426,8 +3201,8 @@ class TestFilters:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": json.loads(CustomUUIDItemAttributesSchema.from_orm(item).json()),
-                    "id": str(new_id),
+                    "attributes": json.loads(CustomUUIDItemAttributesSchema.model_validate(item).model_dump_json()),
+                    "id": f"{new_id}",
                     "type": resource_type,
                 },
             ],
@@ -3442,9 +3217,9 @@ class TestFilters:
     ):
         resource_type = "custom_uuid_item"
 
-        extra_id = str(uuid4())
+        extra_id = f"{uuid4()}"
         params = {
-            "filter[extra_id]": str(extra_id) + "z",
+            "filter[extra_id]": f"{extra_id}" + "z",
         }
 
         url = app.url_path_for(f"get_{resource_type}_list")
@@ -3584,7 +3359,7 @@ class TestFilters:
 
             assert response.status_code == status.HTTP_200_OK, response.text
             assert response.json() == {
-                "data": [{"attributes": {}, "id": str(alpha_1.id), "type": "alpha"}],
+                "data": [{"attributes": {}, "id": f"{alpha_1.id}", "type": "alpha"}],
                 "jsonapi": {"version": "1.0"},
                 "meta": {"count": 1, "totalPages": 1},
             }
@@ -3640,13 +3415,13 @@ class TestSorts:
             "data": sorted(
                 [
                     {
-                        "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(),
-                        "id": str(user_1.id),
+                        "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                        "id": f"{user_1.id}",
                         "type": "user",
                     },
                     {
-                        "attributes": UserAttributesBaseSchema.from_orm(user_3).dict(),
-                        "id": str(user_3.id),
+                        "attributes": UserAttributesBaseSchema.model_validate(user_3).model_dump(),
+                        "id": f"{user_3.id}",
                         "type": "user",
                     },
                 ],

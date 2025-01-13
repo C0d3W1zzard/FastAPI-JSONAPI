@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Optional, Union
+from typing import Any, Optional, Union
 
-from pydantic import BaseModel, Field, root_validator
-from starlette.datastructures import URLPath
+from pydantic import BaseModel, Field, model_validator
 
 
 class OperationRelationshipSchema(BaseModel):
@@ -20,8 +19,8 @@ class OperationItemInSchema(BaseModel):
     type: str = Field(default=..., description="Resource type")
     id: Optional[str] = Field(default=None, description="Resource object ID")
     lid: Optional[str] = Field(default=None, description="Resource object local ID")
-    attributes: Optional[dict] = Field(None, description="Resource object attributes")
-    relationships: Optional[dict] = Field(None, description="Resource object relationships")
+    attributes: Optional[dict] = Field(default=None, description="Resource object attributes")
+    relationships: Optional[dict] = Field(default=None, description="Resource object relationships")
 
 
 OperationDataType = Union[
@@ -29,7 +28,7 @@ OperationDataType = Union[
     # any object creation
     OperationItemInSchema,
     # to-many relationship
-    List[OperationRelationshipSchema],
+    list[OperationRelationshipSchema],
     # to-one relationship
     OperationRelationshipSchema,
     # not required
@@ -55,7 +54,7 @@ class AtomicOperationRef(BaseModel):
     lid: Optional[str] = Field(default=None)
     relationship: Optional[str] = Field(default=None)
 
-    @root_validator
+    @model_validator(mode="before")
     def validate_atomic_operation_ref(cls, values: dict):
         """
         type is required on schema, so id or lid has to be present
@@ -106,8 +105,10 @@ class AtomicOperation(BaseModel):
         default=...,
         description="an operation code, expressed as a string, that indicates the type of operation to perform.",
     )
-    ref: Optional[AtomicOperationRef] = Field(default=None)
-    href: Optional[URLPath] = Field(
+    ref: Optional[AtomicOperationRef] = Field(
+        default=None,
+    )
+    href: Optional[str] = Field(
         default=None,
         description="a string that contains a URI-reference that identifies the target of the operation.",
     )
@@ -151,7 +152,13 @@ class AtomicOperation(BaseModel):
         # TODO: pydantic V2
         raise ValueError(msg)
 
-    @root_validator
+    @classmethod
+    def _get_value_from_dict_or_obj(cls, obj: Any, key: str):
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key, None)
+
+    @model_validator(mode="before")
     def validate_operation(cls, values: dict):
         """
         Make sure atomic operation request conforms the spec
@@ -164,16 +171,23 @@ class AtomicOperation(BaseModel):
         ref: Optional[AtomicOperationRef] = values.get("ref")
         if op == AtomicOperationAction.remove:
             if not ref:
-                msg = f"ref should be present for action {op.value!r}"
+                msg = f"ref should be present for action {op!r}"
                 raise ValueError(msg)
+
             # when updating / removing item, ref [l]id has to be present
-            if not (ref.id or ref.lid):
-                msg = f"id or local id has to be present for action {op.value!r}"
+            if not cls._get_value_from_dict_or_obj(ref, "id") and not cls._get_value_from_dict_or_obj(ref, "lid"):
+                msg = f"id or local id has to be present for action {op!r}"
                 raise ValueError(msg)
 
         data: OperationDataType = values.get("data")
-        operation_type = ref and ref.type or data and data.type
-        if not operation_type:
+
+        operation_type = None
+        if data is not None:
+            operation_type = cls._get_value_from_dict_or_obj(data, "type")
+        elif ref is not None:
+            operation_type = cls._get_value_from_dict_or_obj(ref, "type")
+
+        if operation_type is None:
             msg = "Operation has to be in ref or in data"
             raise ValueError(msg)
 
@@ -181,9 +195,9 @@ class AtomicOperation(BaseModel):
 
 
 class AtomicOperationRequest(BaseModel):
-    operations: List[AtomicOperation] = Field(
+    operations: list[AtomicOperation] = Field(
         alias="atomic:operations",
-        min_items=1,
+        min_length=1,
     )
 
 
@@ -203,7 +217,7 @@ class AtomicResultResponse(BaseModel):
     https://jsonapi.org/ext/atomic/#auto-id-responses-4
     """
 
-    results: List[AtomicResult] = Field(
+    results: list[AtomicResult] = Field(
         alias="atomic:results",
-        min_items=1,
+        min_length=1,
     )

@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Union
+from typing import TYPE_CHECKING, Any, Union
 
 from fastapi_jsonapi.schema import (
     BaseJSONAPIItemInSchema,
@@ -31,12 +33,12 @@ class ListViewBase(ViewBase):
 
     async def get_data_layer(
         self,
-        extra_view_deps: Dict[str, Any],
-    ) -> "BaseDataLayer":
+        extra_view_deps: dict[str, Any],
+    ) -> BaseDataLayer:
         return await self.get_data_layer_for_list(extra_view_deps)
 
-    async def handle_get_resource_list(self, **extra_view_deps) -> Union[JSONAPIResultListSchema, Dict]:
-        dl: "BaseDataLayer" = await self.get_data_layer(extra_view_deps)
+    async def handle_get_resource_list(self, **extra_view_deps) -> Union[JSONAPIResultListSchema, dict]:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
         query_params = self.query_params
         count, items_from_db = await dl.get_collection(qs=query_params)
         total_pages = self._calculate_total_pages(count)
@@ -48,12 +50,12 @@ class ListViewBase(ViewBase):
         self,
         data_create: BaseJSONAPIItemInSchema,
         **extra_view_deps,
-    ) -> Union[JSONAPIResultDetailSchema, Dict]:
-        dl: "BaseDataLayer" = await self.get_data_layer(extra_view_deps)
+    ) -> Union[JSONAPIResultDetailSchema, dict]:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
         response = await self.process_create_object(dl=dl, data_create=data_create)
         return handle_jsonapi_fields(response, self.query_params, self.jsonapi)
 
-    async def process_create_object(self, dl: "BaseDataLayer", data_create: BaseJSONAPIItemInSchema):
+    async def process_create_object(self, dl: BaseDataLayer, data_create: BaseJSONAPIItemInSchema):
         created_object = await dl.create_object(data_create=data_create, view_kwargs={})
 
         created_object_id = dl.get_object_id(created_object)
@@ -64,7 +66,7 @@ class ListViewBase(ViewBase):
         return self._build_detail_response(db_object)
 
     async def handle_delete_resource_list(self, **extra_view_deps) -> JSONAPIResultListSchema:
-        dl: "BaseDataLayer" = await self.get_data_layer(extra_view_deps)
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
         query_params = self.query_params
         count, items_from_db = await dl.get_collection(qs=query_params)
         total_pages = self._calculate_total_pages(count)

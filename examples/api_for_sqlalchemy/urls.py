@@ -1,10 +1,6 @@
 """Route creator"""
 
-from typing import (
-    Any,
-    Dict,
-    List,
-)
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -20,11 +16,7 @@ from examples.api_for_sqlalchemy.models import (
     User,
     UserBio,
 )
-from fastapi_jsonapi import RoutersJSONAPI
-from fastapi_jsonapi.atomic import AtomicOperations
-
-from .api.views_base import DetailViewBase, ListViewBase
-from .models.schemas import (
+from examples.api_for_sqlalchemy.schemas import (
     ChildInSchema,
     ChildPatchSchema,
     ChildSchema,
@@ -38,16 +30,20 @@ from .models.schemas import (
     PostInSchema,
     PostPatchSchema,
     PostSchema,
+    UserBioBaseSchema,
     UserBioInSchema,
     UserBioPatchSchema,
-    UserBioSchema,
     UserInSchema,
     UserPatchSchema,
     UserSchema,
 )
+from fastapi_jsonapi import RoutersJSONAPI
+from fastapi_jsonapi.atomic import AtomicOperations
+
+from .api.views_base import DetailViewBase, ListViewBase
 
 
-def add_routes(app: FastAPI) -> List[Dict[str, Any]]:
+def add_routes(app: FastAPI) -> list[dict[str, Any]]:
     tags = [
         {
             "name": "User",
@@ -93,7 +89,7 @@ def add_routes(app: FastAPI) -> List[Dict[str, Any]]:
         class_detail=DetailViewBase,
         class_list=ListViewBase,
         model=UserBio,
-        schema=UserBioSchema,
+        schema=UserBioBaseSchema,
         resource_type="user_bio",
         schema_in_patch=UserBioPatchSchema,
         schema_in_post=UserBioInSchema,

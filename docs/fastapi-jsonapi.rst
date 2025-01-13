@@ -25,34 +25,10 @@ fastapi_jsonapi.data_layers.filtering.sqlalchemy module
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.data_layers.filtering.tortoise_operation module
----------------------------------------------------------------
-
-.. automodule:: fastapi_jsonapi.data_layers.filtering.tortoise_operation
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-fastapi_jsonapi.data_layers.filtering.tortoise_orm module
----------------------------------------------------------
-
-.. automodule:: fastapi_jsonapi.data_layers.filtering.tortoise_orm
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 fastapi_jsonapi.data_layers.sorting.sqlalchemy module
 -----------------------------------------------------
 
 .. automodule:: fastapi_jsonapi.data_layers.sorting.sqlalchemy
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-fastapi_jsonapi.data_layers.sorting.tortoise_orm module
--------------------------------------------------------
-
-.. automodule:: fastapi_jsonapi.data_layers.sorting.tortoise_orm
     :members:
     :undoc-members:
     :show-inheritance:
@@ -93,14 +69,6 @@ fastapi_jsonapi.data_layers.sqla_orm module
 -------------------------------------------
 
 .. automodule:: fastapi_jsonapi.data_layers.sqla_orm
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-fastapi_jsonapi.data_layers.tortoise_orm module
------------------------------------------------
-
-.. automodule:: fastapi_jsonapi.data_layers.tortoise_orm
     :members:
     :undoc-members:
     :show-inheritance:

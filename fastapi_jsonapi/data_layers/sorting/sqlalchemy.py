@@ -1,23 +1,24 @@
 """Helper to create sqlalchemy sortings according to filter querystring parameter"""
-from typing import Any, List, Tuple, Type, Union
 
-from pydantic.fields import ModelField
+from typing import Any, Type, Union
+
+# noinspection PyProtectedMember
+from pydantic.fields import FieldInfo
 from sqlalchemy.orm import DeclarativeMeta, InstrumentedAttribute, aliased
 from sqlalchemy.sql.elements import BinaryExpression
 
 from fastapi_jsonapi.data_layers.shared import create_filters_or_sorts
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.exceptions import InvalidFilters, InvalidSort
-from fastapi_jsonapi.schema import get_model_field, get_relationships
+from fastapi_jsonapi.schema import get_model_field, get_relationship_fields_names, get_schema_from_field_annotation
 from fastapi_jsonapi.splitter import SPLIT_REL
-from fastapi_jsonapi.utils.sqla import get_related_model_cls
 
 Sort = BinaryExpression
-Join = List[Any]
+Join = list[Any]
 
-SortAndJoins = Tuple[
+SortAndJoins = tuple[
     Sort,
-    List[Join],
+    list[Join],
 ]
 
 
@@ -48,7 +49,7 @@ class Node(object):
         self.schema = schema
 
     @classmethod
-    def create_sort(cls, schema_field: ModelField, model_column, order: str):
+    def create_sort(cls, schema_field: FieldInfo, model_column, order: str):
         """
         Create sqlalchemy sort.
 
@@ -81,7 +82,7 @@ class Node(object):
         """
         field = self.sort_.get("field", "")
         if not hasattr(self.model, field) and SPLIT_REL not in field:
-            msg = "{} has no attribute {}".format(self.model.__name__, field)
+            msg = f"{self.model.__name__} has no attribute {field}"
             raise InvalidSort(msg)
 
         if SPLIT_REL in field:
@@ -95,7 +96,7 @@ class Node(object):
 
         return (
             self.create_sort(
-                schema_field=self.schema.__fields__[self.name].type_,
+                schema_field=get_schema_from_field_annotation(self.schema.model_fields[self.name]),
                 model_column=self.column,
                 order=self.sort_["order"],
             ),
@@ -118,8 +119,8 @@ class Node(object):
         if SPLIT_REL in name:
             name = name.split(SPLIT_REL)[0]
 
-        if name not in self.schema.__fields__:
-            msg = "{} has no attribute {}".format(self.schema.__name__, name)
+        if name not in self.schema.model_fields:
+            msg = f"{self.schema.__name__} has no attribute {name}"
             raise InvalidFilters(msg)
 
         return name
@@ -138,7 +139,7 @@ class Node(object):
         try:
             return getattr(self.model, model_field)
         except AttributeError:
-            msg = "{} has no attribute {}".format(self.model.__name__, model_field)
+            msg = f"{self.model.__name__} has no attribute {model_field}"
             raise InvalidFilters(msg)
 
     @property
@@ -150,11 +151,11 @@ class Node(object):
         """
         relationship_field = self.name
 
-        if relationship_field not in get_relationships(self.schema):
-            msg = "{} has no relationship attribute {}".format(self.schema.__name__, relationship_field)
+        if relationship_field not in get_relationship_fields_names(self.schema):
+            msg = f"{self.schema.__name__} has no relationship attribute {relationship_field}"
             raise InvalidFilters(msg)
 
-        return get_related_model_cls(self.model, get_model_field(self.schema, relationship_field))
+        return getattr(self.model, get_model_field(self.schema, relationship_field)).property.mapper.class_
 
     @property
     def related_schema(self) -> Type[TypeSchema]:
@@ -165,8 +166,8 @@ class Node(object):
         """
         relationship_field = self.name
 
-        if relationship_field not in get_relationships(self.schema):
-            msg = "{} has no relationship attribute {}".format(self.schema.__name__, relationship_field)
+        if relationship_field not in get_relationship_fields_names(self.schema):
+            msg = f"{self.schema.__name__} has no relationship attribute {relationship_field}"
             raise InvalidFilters(msg)
 
-        return self.schema.__fields__[relationship_field].type_
+        return get_schema_from_field_annotation(self.schema.model_fields[relationship_field])

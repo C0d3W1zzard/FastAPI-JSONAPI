@@ -1,5 +1,4 @@
-"""User model."""
-from __future__ import annotations
+from typing import Optional
 
 from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
@@ -12,12 +11,13 @@ from examples.api_for_sqlalchemy.utils.sqlalchemy.fields.enum import EnumColumn
 
 class User(Base, BaseModelMixin):
     __tablename__ = "users"
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     first_name: str = Column(String, nullable=True)
     last_name: str = Column(String, nullable=True)
     age: int = Column(Integer, nullable=True)
     status = Column(EnumColumn(UserStatusEnum), nullable=False, default=UserStatusEnum.active)
-    email: str | None = Column(String, nullable=True)
+    email: Optional[str] = Column(String, nullable=True)
 
     posts = relationship("Post", back_populates="user", uselist=True)
     bio = relationship("UserBio", back_populates="user", uselist=False)

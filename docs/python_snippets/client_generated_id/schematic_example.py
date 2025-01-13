@@ -1,10 +1,11 @@
 import sys
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Annotated
 
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI
-from fastapi_jsonapi.schema_base import Field, BaseModel as PydanticBaseModel
+from fastapi_jsonapi.schema_base import BaseModel
+from pydantic import ConfigDict
 from sqlalchemy import Column, Integer, Text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -13,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from fastapi_jsonapi import RoutersJSONAPI, init
 from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
+from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
 from fastapi_jsonapi.views.view_base import ViewBase
 
@@ -20,23 +22,23 @@ CURRENT_FILE = Path(__file__).resolve()
 CURRENT_DIR = CURRENT_FILE.parent
 PROJECT_DIR = CURRENT_DIR.parent.parent
 DB_URL = f"sqlite+aiosqlite:///{CURRENT_DIR.absolute()}/db.sqlite3"
-sys.path.append(str(PROJECT_DIR))
+sys.path.append(f"{PROJECT_DIR}")
 
 Base = declarative_base()
 
 
 class User(Base):
     __tablename__ = "users"
+
     id = Column(Integer, primary_key=True, autoincrement=False)
     name = Column(Text, nullable=True)
 
 
-class BaseModel(PydanticBaseModel):
-    class Config:
-        orm_mode = True
-
-
 class UserAttributesBaseSchema(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
+
     name: str
 
 
@@ -51,7 +53,7 @@ class UserPatchSchema(UserAttributesBaseSchema):
 class UserInSchema(UserAttributesBaseSchema):
     """User input schema."""
 
-    id: int = Field(client_can_set_id=True)
+    id: Annotated[int, ClientCanSetId()]
 
 
 async def get_session():
@@ -72,14 +74,17 @@ async def sqlalchemy_init() -> None:
 
 
 class SessionDependency(BaseModel):
-    session: AsyncSession = Depends(get_session)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
 
-    class Config:
-        arbitrary_types_allowed = True
+    session: AsyncSession = Depends(get_session)
 
 
 def session_dependency_handler(view: ViewBase, dto: SessionDependency) -> dict:
-    return {"session": dto.session}
+    return {
+        "session": dto.session,
+    }
 
 
 class UserDetailView(DetailViewBaseGeneric):
@@ -153,5 +158,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8084,
         reload=True,
-        app_dir=str(CURRENT_DIR),
+        app_dir=f"{CURRENT_DIR}",
     )

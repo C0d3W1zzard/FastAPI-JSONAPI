@@ -1,39 +1,42 @@
 """Helper to create sqlalchemy filters according to filter querystring parameter"""
-import inspect
+
 import logging
-from collections.abc import Sequence
 from typing import (
     Any,
-    Callable,
-    Dict,
-    List,
     Optional,
-    Set,
-    Tuple,
     Type,
     Union,
+    get_args,
 )
 
-from pydantic import BaseConfig, BaseModel
-from pydantic.fields import ModelField
-from pydantic.validators import _VALIDATORS, find_validators
+from pydantic import BaseModel, ConfigDict, PydanticSchemaGenerationError, TypeAdapter
+
+# noinspection PyProtectedMember
+from pydantic._internal._typing_extra import is_none_type
+
+# noinspection PyProtectedMember
+from pydantic.fields import FieldInfo
 from sqlalchemy import and_, false, not_, or_
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.util import AliasedClass
 from sqlalchemy.sql.elements import BinaryExpression, BooleanClauseList
 
+from fastapi_jsonapi.common import search_custom_filter_sql
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.exceptions import InvalidFilters, InvalidType
 from fastapi_jsonapi.exceptions.json_api import HTTPException
-from fastapi_jsonapi.schema import JSONAPISchemaIntrospectionError, get_model_field, get_relationships
+from fastapi_jsonapi.schema import (
+    JSONAPISchemaIntrospectionError,
+    get_model_field,
+    get_relationship_fields_names,
+    get_schema_from_field_annotation,
+)
+from fastapi_jsonapi.types_metadata import CustomFilterSQL
 
 log = logging.getLogger(__name__)
 
 RELATIONSHIP_SPLITTER = "."
-
-# The mapping with validators using by to cast raw value to instance of target type
-REGISTERED_PYDANTIC_TYPES: Dict[Type, List[Callable]] = dict(_VALIDATORS)
 
 cast_failed = object()
 
@@ -41,134 +44,34 @@ RelationshipPath = str
 
 
 class RelationshipFilteringInfo(BaseModel):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
     target_schema: Type[TypeSchema]
     model: Type[TypeModel]
     aliased_model: AliasedClass
     join_column: InstrumentedAttribute
 
-    class Config:
-        arbitrary_types_allowed = True
 
-
-def check_can_be_none(fields: list[ModelField]) -> bool:
-    """
-    Return True if None is possible value for target field
-    """
-    return any(field_item.allow_none for field_item in fields)
-
-
-def separate_types(types: List[Type]) -> Tuple[List[Type], List[Type]]:
-    """
-    Separates the types into two kinds.
-
-    The first are those for which there are already validators
-    defined by pydantic - str, int, datetime and some other built-in types.
-    The second are all other types for which the `arbitrary_types_allowed`
-    config is applied when defining the pydantic model
-    """
-    pydantic_types = [
-        # skip format
-        type_
-        for type_ in types
-        if type_ in REGISTERED_PYDANTIC_TYPES
-    ]
-    userspace_types = [
-        # skip format
-        type_
-        for type_ in types
-        if type_ not in REGISTERED_PYDANTIC_TYPES
-    ]
-    return pydantic_types, userspace_types
-
-
-def validator_requires_model_field(validator: Callable) -> bool:
-    """
-    Check if validator accepts the `field` param
-
-    :param validator:
-    :return:
-    """
-    signature = inspect.signature(validator)
-    parameters = signature.parameters
-
-    if "field" not in parameters:
-        return False
-
-    field_param = parameters["field"]
-    field_type = field_param.annotation
-
-    return field_type == "ModelField" or field_type is ModelField
-
-
-def cast_value_with_pydantic(
-    types: List[Type],
-    value: Any,
-    schema_field: ModelField,
-) -> Tuple[Optional[Any], List[str]]:
-    result_value, errors = None, []
-
-    for type_to_cast in types:
-        for validator in find_validators(type_to_cast, BaseConfig):
-            args = [value]
-            # TODO: some other way to get all the validator's dependencies?
-            if validator_requires_model_field(validator):
-                args.append(schema_field)
-            try:
-                result_value = validator(*args)
-            except Exception as ex:
-                errors.append(str(ex))
-            else:
-                return result_value, errors
-
-    return None, errors
-
-
-def cast_iterable_with_pydantic(
-    types: List[Type],
-    values: List,
-    schema_field: ModelField,
-) -> Tuple[List, List[str]]:
-    type_cast_failed = False
-    failed_values = []
-
-    result_values: List[Any] = []
-    errors: List[str] = []
-
-    for value in values:
-        casted_value, cast_errors = cast_value_with_pydantic(
-            types,
-            value,
-            schema_field,
-        )
-        errors.extend(cast_errors)
-
-        if casted_value is None:
-            type_cast_failed = True
-            failed_values.append(value)
-
-            continue
-
-        result_values.append(casted_value)
-
-    if type_cast_failed:
-        msg = f"Can't parse items {failed_values} of value {values}"
-        raise InvalidFilters(msg, pointer=schema_field.name)
-
-    return result_values, errors
-
-
-def cast_value_with_scheme(field_types: List[Type], value: Any) -> Tuple[Any, List[str]]:
-    errors: List[str] = []
+def cast_value_with_schema(field_types: list[Type], value: Any) -> tuple[Any, list[str]]:
+    errors: list[str] = []
     casted_value = cast_failed
 
     for field_type in field_types:
         try:
+            # don't allow arbitrary types, we don't know their behaviour
+            cast_type = TypeAdapter(field_type).validate_python
+        except PydanticSchemaGenerationError:
+            cast_type = field_type
+
+        try:
             if isinstance(value, list):  # noqa: SIM108
-                casted_value = [field_type(item) for item in value]
+                casted_value = [cast_type(item) for item in value]
             else:
-                casted_value = field_type(value)
+                casted_value = cast_type(value)
         except (TypeError, ValueError) as ex:
-            errors.append(str(ex))
+            errors.append(f"{ex}")
         else:
             return casted_value, errors
 
@@ -176,7 +79,7 @@ def cast_value_with_scheme(field_types: List[Type], value: Any) -> Tuple[Any, Li
 
 
 def build_filter_expression(
-    schema_field: ModelField,
+    schema_field: FieldInfo,
     model_column: InstrumentedAttribute,
     operator: str,
     value: Any,
@@ -196,45 +99,35 @@ def build_filter_expression(
     """
     fields = [schema_field]
 
-    # for Union annotations
-    if schema_field.sub_fields:
-        fields = list(schema_field.sub_fields)
-
-    can_be_none = check_can_be_none(fields)
+    can_be_none = False
+    for field in fields:
+        if args := get_args(field.annotation):
+            for arg in args:
+                # None is probably only on the top level
+                if is_none_type(arg):
+                    can_be_none = True
+                    break
 
     if value is None:
         if can_be_none:
             return getattr(model_column, operator)(value)
 
-        raise InvalidFilters(detail=f"The field `{schema_field.name}` can't be null")
+        raise InvalidFilters(detail=f"The field `{model_column.key}` can't be null")
 
-    types = [i.type_ for i in fields]
-    casted_value = None
-    errors: List[str] = []
-
-    pydantic_types, userspace_types = separate_types(types)
-
-    if pydantic_types:
-        func = cast_value_with_pydantic
-        if isinstance(value, list):
-            func = cast_iterable_with_pydantic
-        casted_value, errors = func(pydantic_types, value, schema_field)
-
-    if casted_value is None and userspace_types:
-        log.warning("Filtering by user type values is not properly tested yet. Use this on your own risk.")
-
-        casted_value, errors = cast_value_with_scheme(types, value)
-
-        if casted_value is cast_failed:
-            raise InvalidType(
-                detail=f"Can't cast filter value `{value}` to arbitrary type.",
-                errors=[HTTPException(status_code=InvalidType.status_code, detail=str(err)) for err in errors],
-            )
+    casted_value, errors = cast_value_with_schema(
+        field_types=[i.annotation for i in fields],
+        value=value,
+    )
+    if casted_value is cast_failed:
+        raise InvalidType(
+            detail=f"Can't cast filter value `{value}` to arbitrary type.",
+            errors=[HTTPException(status_code=InvalidType.status_code, detail=f"{err}") for err in errors],
+        )
 
     if casted_value is None and not can_be_none:
         raise InvalidType(
             detail=", ".join(errors),
-            pointer=schema_field.name,
+            pointer=schema_field.title,
         )
 
     return getattr(model_column, operator)(casted_value)
@@ -258,7 +151,7 @@ def is_relationship_filter(name: str) -> bool:
     return RELATIONSHIP_SPLITTER in name
 
 
-def gather_relationship_paths(filter_item: Union[dict, list]) -> Set[str]:
+def gather_relationship_paths(filter_item: Union[dict, list]) -> set[str]:
     """
     Extracts relationship paths from query filter
     """
@@ -291,12 +184,13 @@ def get_model_column(
     try:
         model_field = get_model_field(schema, field_name)
     except JSONAPISchemaIntrospectionError as e:
-        raise InvalidFilters(str(e))
+        msg = f"{e}"
+        raise InvalidFilters(msg)
 
     try:
         return getattr(model, model_field)
     except AttributeError:
-        msg = "{} has no attribute {}".format(model.__name__, model_field)
+        msg = f"{model.__name__} has no attribute {model_field}"
         raise InvalidFilters(msg)
 
 
@@ -316,20 +210,14 @@ def get_operator(model_column: InstrumentedAttribute, operator_name: str) -> str
         if hasattr(model_column, op):
             return op
 
-    msg = "{} has no operator {}".format(model_column.key, operator_name)
+    msg = f"Field {model_column.key!r} has no operator {operator_name!r}"
     raise InvalidFilters(msg)
-
-
-def get_custom_filter_expression_callable(schema_field, operator: str) -> Callable:
-    return schema_field.field_info.extra.get(
-        f"_{operator}_sql_filter_",
-    )
 
 
 def gather_relationships_info(
     model: Type[TypeModel],
     schema: Type[TypeSchema],
-    relationship_path: List[str],
+    relationship_path: list[str],
     collected_info: dict[RelationshipPath, RelationshipFilteringInfo],
     target_relationship_idx: int = 0,
     prev_aliased_model: Optional[Any] = None,
@@ -340,11 +228,12 @@ def gather_relationships_info(
     )
     target_relationship_name = relationship_path[target_relationship_idx]
 
-    if target_relationship_name not in set(get_relationships(schema)):
-        msg = f"There are no relationship '{target_relationship_name}' defined in schema {schema.__name__}"
+    relationships_names = get_relationship_fields_names(schema)
+    if target_relationship_name not in relationships_names:
+        msg = f"There is no relationship {target_relationship_name!r} defined in schema {schema.__name__!r}"
         raise InvalidFilters(msg)
 
-    target_schema = schema.__fields__[target_relationship_name].type_
+    target_schema = get_schema_from_field_annotation(schema.model_fields[target_relationship_name])
     target_model = getattr(model, target_relationship_name).property.mapper.class_
 
     if prev_aliased_model:
@@ -384,7 +273,7 @@ def gather_relationships_info(
 def gather_relationships(
     entrypoint_model: Type[TypeModel],
     schema: Type[TypeSchema],
-    relationship_paths: Set[str],
+    relationship_paths: set[str],
 ) -> dict[RelationshipPath, RelationshipFilteringInfo]:
     collected_info = {}
     for relationship_path in sorted(relationship_paths):
@@ -413,10 +302,10 @@ def prepare_relationships_info(
 
 
 def build_terminal_node_filter_expressions(
-    filter_item: Dict,
+    filter_item: dict,
     target_schema: Type[TypeSchema],
     target_model: Type[TypeModel],
-    relationships_info: Dict[RelationshipPath, RelationshipFilteringInfo],
+    relationships_info: dict[RelationshipPath, RelationshipFilteringInfo],
 ):
     name: str = filter_item["name"]
     if is_relationship_filter(name):
@@ -438,14 +327,16 @@ def build_terminal_node_filter_expressions(
             field_name=field_name,
         )
 
-    schema_field = target_schema.__fields__[field_name]
+    schema_field = target_schema.model_fields[field_name]
 
     filter_operator = filter_item["op"]
-    custom_filter_expression: Callable = get_custom_filter_expression_callable(
-        schema_field=schema_field,
-        operator=filter_operator,
-    )
-    if custom_filter_expression is None:
+    custom_filter_sql: Optional[CustomFilterSQL] = None
+    for filter_sql in search_custom_filter_sql.iterate(field=schema_field):
+        if filter_sql.op == filter_operator:
+            custom_filter_sql = filter_sql
+            break
+
+    if custom_filter_sql is None:
         return build_filter_expression(
             schema_field=schema_field,
             model_column=model_column,
@@ -456,39 +347,19 @@ def build_terminal_node_filter_expressions(
             value=filter_item["val"],
         )
 
-    custom_call_result = custom_filter_expression(
+    return custom_filter_sql.get_expression(
         schema_field=schema_field,
         model_column=model_column,
         value=filter_item["val"],
         operator=filter_operator,
     )
-    if isinstance(custom_call_result, Sequence):
-        expected_len = 2
-        if len(custom_call_result) != expected_len:
-            log.error(
-                "Invalid filter, returned sequence length is not %s: %s, len=%s",
-                expected_len,
-                custom_call_result,
-                len(custom_call_result),
-            )
-            raise InvalidFilters(detail="Custom sql filter backend error.")
-        log.warning(
-            "Custom filter result of `[expr, [joins]]` is deprecated."
-            " Please return only filter expression from now on. "
-            "(triggered on schema field %s for filter operator %s on column %s)",
-            schema_field,
-            filter_operator,
-            model_column,
-        )
-        custom_call_result = custom_call_result[0]
-    return custom_call_result
 
 
 def build_filter_expressions(
-    filter_item: Dict,
+    filter_item: dict,
     target_schema: Type[TypeSchema],
     target_model: Type[TypeModel],
-    relationships_info: Dict[RelationshipPath, RelationshipFilteringInfo],
+    relationships_info: dict[RelationshipPath, RelationshipFilteringInfo],
 ) -> Union[BinaryExpression, BooleanClauseList]:
     """
     Return sqla expressions.
@@ -538,18 +409,17 @@ def build_filter_expressions(
             ),
         )
 
-    expressions = []
-    for filter_sub_item in filter_item[logic_operator]:
-        expressions.append(
+    return op(
+        *(
             build_filter_expressions(
                 filter_item=filter_sub_item,
                 target_schema=target_schema,
                 target_model=target_model,
                 relationships_info=relationships_info,
-            ),
-        )
-
-    return op(*expressions)
+            )
+            for filter_sub_item in filter_item[logic_operator]
+        ),
+    )
 
 
 def create_filters_and_joins(

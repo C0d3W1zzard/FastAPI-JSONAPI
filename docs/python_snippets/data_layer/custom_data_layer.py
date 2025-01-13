@@ -10,8 +10,6 @@ from fastapi_jsonapi.views.list_view import ListViewBase
 class MyCustomDataLayer(BaseDataLayer):
     """Overload abstract methods here"""
 
-    ...
-
 
 class MyCustomSqlaDataLayer(SqlalchemyDataLayer):
     """Overload any methods here"""

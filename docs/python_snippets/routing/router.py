@@ -1,7 +1,7 @@
 from fastapi import APIRouter, FastAPI
 
 from examples.api_for_sqlalchemy.models import User
-from examples.api_for_sqlalchemy.models.schemas import (
+from examples.api_for_sqlalchemy.schemas import (
     UserInSchema,
     UserPatchSchema,
     UserSchema,

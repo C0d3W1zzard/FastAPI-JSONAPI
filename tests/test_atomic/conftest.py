@@ -1,4 +1,4 @@
-from __future__ import annotations
+from collections.abc import Sequence
 
 import pytest
 
@@ -10,6 +10,17 @@ def allowed_atomic_actions_list() -> list[str]:
     return [op.value for op in AtomicOperationAction]
 
 
+def options_as_pydantic_choices_string(options: Sequence[str]) -> str:
+    if len(options) == 1:
+        return repr(options[0])
+    return " or ".join(
+        (
+            ", ".join(repr(op) for op in options[:-1]),
+            repr(options[-1]),
+        ),
+    )
+
+
 @pytest.fixture()
 def allowed_atomic_actions_as_string(allowed_atomic_actions_list) -> str:
-    return ", ".join(repr(op) for op in allowed_atomic_actions_list)
+    return options_as_pydantic_choices_string(allowed_atomic_actions_list)

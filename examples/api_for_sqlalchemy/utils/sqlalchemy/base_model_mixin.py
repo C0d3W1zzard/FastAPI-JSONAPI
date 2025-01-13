@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Generic, List, TypeVar
+from typing import Generic, TypeVar
 
 from sqlalchemy import (
     Column,
@@ -44,12 +46,12 @@ class BaseModelMixin(Generic[Model]):
         )
 
     def __repr__(self) -> str:
-        return "<{}, pk: {}>".format(
-            self.__class__.__name__,
-            ", ".join(str(getattr(self, key.name)) for key in inspect(self.__class__).primary_key),
+        return (
+            f"<{self.__class__.__name__}, "
+            f"pk: {', '.join(str(getattr(self, key.name)) for key in inspect(self.__class__).primary_key)}>"
         )
 
-    async def save(self, session: AsyncSession, commit: bool = True, flush: bool = False) -> "BaseModelMixin[Model]":
+    async def save(self, session: AsyncSession, commit: bool = True, flush: bool = False) -> BaseModelMixin[Model]:
         has_pk: bool = all(getattr(self, key.name) for key in inspect(self.__class__).primary_key)
         if has_pk:
             await session.merge(self)
@@ -61,14 +63,14 @@ class BaseModelMixin(Generic[Model]):
             await session.flush()
         return self
 
-    async def delete(self, session: AsyncSession, commit: bool = True) -> "BaseModelMixin[Model]":
+    async def delete(self, session: AsyncSession, commit: bool = True) -> BaseModelMixin[Model]:
         await session.execute(delete(self))
         if commit:
             await session.commit()
         return self
 
     @classmethod
-    async def get_all(cls, session: AsyncSession) -> List[Model]:
+    async def get_all(cls, session: AsyncSession) -> list[Model]:
         result = await session.execute(select(Model))
         return result.scalars().all()
 

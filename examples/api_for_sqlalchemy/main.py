@@ -3,6 +3,7 @@ Main module for w_mount service.
 
 In module placed db initialization functions, app factory.
 """
+
 import sys
 from pathlib import Path
 
@@ -20,7 +21,7 @@ CURRENT_FILE = Path(__file__).resolve()
 CURRENT_DIR = CURRENT_FILE.parent
 PROJECT_DIR = CURRENT_DIR.parent.parent
 
-sys.path.append(str(PROJECT_DIR))
+sys.path.append(f"{PROJECT_DIR}")
 
 
 async def sqlalchemy_init() -> None:
@@ -56,5 +57,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8082,
         reload=True,
-        app_dir=str(CURRENT_DIR),
+        app_dir=f"{CURRENT_DIR}",
     )

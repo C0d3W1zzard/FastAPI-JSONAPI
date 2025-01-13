@@ -3,7 +3,6 @@
 from http import HTTPStatus
 from typing import (
     Any,
-    List,
     Optional,
     Union,
 )
@@ -26,7 +25,7 @@ class HTTPException(FastApiHttpException):
         parameter: str = "",
         title: Optional[str] = None,
         status_code: Optional[int] = None,
-        errors: Optional[List["HTTPException"]] = None,
+        errors: Optional[list["HTTPException"]] = None,
         meta: Optional[dict[str, Any]] = None,
     ):
         """
@@ -93,16 +92,6 @@ class InternalServerError(HTTPException):
     """
 
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-
-
-class UnsupportedFeatureORM(InternalServerError):
-    """
-    Init for invalid ORM exception.
-
-    Unsupported feature ORM exception class customized for json_api exceptions.
-    """
-
-    title = "Unsupported ORM"
 
 
 class BadRequest(HTTPException):

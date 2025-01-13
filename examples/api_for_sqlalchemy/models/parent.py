@@ -10,6 +10,7 @@ class Parent(Base, BaseModelMixin):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String, nullable=False)
+
     children = relationship(
         "ParentToChildAssociation",
         back_populates="parent",

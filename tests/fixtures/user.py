@@ -1,7 +1,7 @@
 import pytest
 
+from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema
 from tests.misc.utils import fake
-from tests.schemas import UserAttributesBaseSchema
 
 
 @pytest.fixture()

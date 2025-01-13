@@ -1,13 +1,19 @@
-from typing import ClassVar, Dict, Optional
+from typing import ClassVar, Optional
 
 from fastapi import APIRouter, Depends, FastAPI, Header, Path, status
 from httpx import AsyncClient
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from pytest import mark  # noqa
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Annotated
 
+from examples.api_for_sqlalchemy.schemas import (
+    UserAttributesBaseSchema,
+    UserInSchema,
+    UserPatchSchema,
+    UserSchema,
+)
 from fastapi_jsonapi import RoutersJSONAPI, init
 from fastapi_jsonapi.exceptions import Forbidden, InternalServerError
 from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
@@ -20,12 +26,6 @@ from tests.fixtures.db_connection import async_session_dependency
 from tests.fixtures.views import SessionDependency
 from tests.misc.utils import fake
 from tests.models import User
-from tests.schemas import (
-    UserAttributesBaseSchema,
-    UserInSchema,
-    UserPatchSchema,
-    UserSchema,
-)
 
 pytestmark = mark.asyncio
 
@@ -69,13 +69,13 @@ async def test_dependency_handler_call():
         dependency_1: int = Depends(one)
         dependency_2: int = Depends(two)
 
-    async def dependencies_handler(view_base: ViewBase, dto: CustomDependencies) -> Optional[Dict]:
+    async def dependencies_handler(view_base: ViewBase, dto: CustomDependencies) -> Optional[dict]:
         raise InternalServerError(
             detail="hi",
             errors=[
                 InternalServerError(
                     title="Check that dependency successfully passed",
-                    detail=dto.dict(),
+                    detail=dto.model_dump(),
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 ),
                 InternalServerError(
@@ -87,7 +87,7 @@ async def test_dependency_handler_call():
         )
 
     class DependencyInjectionDetailView(DetailViewBaseGeneric):
-        method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
+        method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
             HTTPMethod.GET: HTTPMethodConfig(
                 dependencies=CustomDependencies,
                 prepare_data_layer_kwargs=dependencies_handler,
@@ -137,13 +137,15 @@ async def test_dependencies_as_permissions(user_1: User):
     class DetailGenericDependency(SessionDependency):
         custom_name_obj_id: int = Depends(get_path_obj_id)
 
-    def all_handler(view: ViewBase, dto: DetailGenericDependency) -> Dict:
+    def all_handler(view: ViewBase, dto: DetailGenericDependency) -> dict:
         # test inside handler
         assert dto.custom_name_obj_id == int(view.request.path_params["obj_id"])
-        return {"session": dto.session}
+        return {
+            "session": dto.session,
+        }
 
     class DependencyInjectionDetailView(DetailViewBaseGeneric):
-        method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
+        method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
             HTTPMethod.GET: HTTPMethodConfig(dependencies=AdminOnlyPermission),
             HTTPMethod.ALL: HTTPMethodConfig(
                 dependencies=DetailGenericDependency,
@@ -171,8 +173,8 @@ async def test_dependencies_as_permissions(user_1: User):
         res = await client.get(f"/users/{user_1.id}", headers={"X-AUTH": "admin"})
         assert res.json() == {
             "data": {
-                "attributes": UserAttributesBaseSchema.from_orm(user_1).dict(),
-                "id": str(user_1.id),
+                "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+                "id": f"{user_1.id}",
                 "type": resource_type,
             },
             "jsonapi": {"version": "1.0"},
@@ -184,12 +186,13 @@ async def test_manipulate_data_layer_kwargs(
     user_1: User,
 ):
     class GetDetailDependencies(BaseModel):
+        model_config = ConfigDict(
+            arbitrary_types_allowed=True,
+        )
+
         session: AsyncSession = Depends(async_session_dependency)
 
-        class Config:
-            arbitrary_types_allowed = True
-
-    async def set_session_and_ignore_user_1(view_base: ViewBase, dto: GetDetailDependencies) -> Dict:
+    async def set_session_and_ignore_user_1(view_base: ViewBase, dto: GetDetailDependencies) -> dict:
         query = select(User).where(User.id != user_1.id)
 
         return {
@@ -198,7 +201,7 @@ async def test_manipulate_data_layer_kwargs(
         }
 
     class DependencyInjectionDetailView(DetailViewBaseGeneric):
-        method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
+        method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
             HTTPMethod.GET: HTTPMethodConfig(
                 dependencies=GetDetailDependencies,
                 prepare_data_layer_kwargs=set_session_and_ignore_user_1,

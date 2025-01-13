@@ -18,5 +18,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8082,
         reload=True,
-        app_dir=str(CURRENT_DIR),
+        app_dir=f"{CURRENT_DIR}",
     )

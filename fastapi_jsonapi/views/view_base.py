@@ -7,21 +7,21 @@ from typing import (
     Any,
     Callable,
     ClassVar,
-    Dict,
     Iterable,
-    List,
     Optional,
-    Tuple,
     Type,
     Union,
 )
 
 from fastapi import Request
 from pydantic import BaseModel as PydanticBaseModel
-from pydantic.fields import ModelField
+
+# noinspection PyProtectedMember
+from pydantic.fields import FieldInfo
 from starlette.concurrency import run_in_threadpool
 
 from fastapi_jsonapi import QueryStringManager, RoutersJSONAPI
+from fastapi_jsonapi.common import get_relationship_info_from_field_metadata
 from fastapi_jsonapi.data_layers.base import BaseDataLayer
 from fastapi_jsonapi.data_typing import (
     TypeModel,
@@ -32,10 +32,12 @@ from fastapi_jsonapi.schema import (
     JSONAPIResultListMetaSchema,
     JSONAPIResultListSchema,
     get_related_schema,
+    get_schema_from_field_annotation,
 )
-from fastapi_jsonapi.schema_base import BaseModel, RelationshipInfo
+from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.schema_builder import JSONAPIObjectSchemas
 from fastapi_jsonapi.splitter import SPLIT_REL
+from fastapi_jsonapi.types_metadata import RelationshipInfo
 from fastapi_jsonapi.views.utils import (
     HTTPMethod,
     HTTPMethodConfig,
@@ -51,7 +53,7 @@ included_object_schema_ctx_var: ContextVar[Type[TypeSchema]] = ContextVar("inclu
 relationship_info_ctx_var: ContextVar[RelationshipInfo] = ContextVar("relationship_info_ctx_var")
 
 # TODO: just change state on `self`!! (refactor)
-included_objects_ctx_var: ContextVar[Dict[Tuple[str, str], TypeSchema]] = ContextVar("included_objects_ctx_var")
+included_objects_ctx_var: ContextVar[dict[tuple[str, str], TypeSchema]] = ContextVar("included_objects_ctx_var")
 
 
 class ViewBase:
@@ -60,7 +62,7 @@ class ViewBase:
     """
 
     data_layer_cls = BaseDataLayer
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {}
+    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {}
 
     def __init__(self, *, request: Request, jsonapi: RoutersJSONAPI, **options):
         self.request: Request = request
@@ -79,13 +81,13 @@ class ViewBase:
 
     async def get_data_layer(
         self,
-        extra_view_deps: Dict[str, Any],
+        extra_view_deps: dict[str, Any],
     ) -> BaseDataLayer:
         raise NotImplementedError
 
     async def get_data_layer_for_detail(
         self,
-        extra_view_deps: Dict[str, Any],
+        extra_view_deps: dict[str, Any],
     ) -> BaseDataLayer:
         """
         Prepares data layer for detail view
@@ -101,7 +103,7 @@ class ViewBase:
 
     async def get_data_layer_for_list(
         self,
-        extra_view_deps: Dict[str, Any],
+        extra_view_deps: dict[str, Any],
     ) -> BaseDataLayer:
         """
         Prepares data layer for list view
@@ -130,26 +132,22 @@ class ViewBase:
     async def _handle_config(
         self,
         method_config: HTTPMethodConfig,
-        extra_view_deps: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        extra_view_deps: dict[str, Any],
+    ) -> dict[str, Any]:
         if method_config.handler is None:
             return {}
 
         if method_config.dependencies:
             dto_class: Type[PydanticBaseModel] = method_config.dependencies
             dto = dto_class(**extra_view_deps)
-            dl_kwargs = await self._run_handler(method_config.handler, dto)
+            return await self._run_handler(method_config.handler, dto)
 
-            return dl_kwargs
-
-        dl_kwargs = await self._run_handler(method_config.handler)
-
-        return dl_kwargs
+        return await self._run_handler(method_config.handler)
 
     async def handle_endpoint_dependencies(
         self,
-        extra_view_deps: Dict[str, Any],
-    ) -> Dict:
+        extra_view_deps: dict[str, Any],
+    ) -> dict:
         """
         :return dict: this is **kwargs for DataLayer.__init___
         """
@@ -165,7 +163,7 @@ class ViewBase:
 
         return dl_kwargs
 
-    def _build_response(self, items_from_db: List[TypeModel], item_schema: Type[BaseModel]):
+    def _build_response(self, items_from_db: list[TypeModel], item_schema: Type[BaseModel]):
         return self.process_includes_for_db_items(
             includes=self.query_params.include,
             # as list to reuse helper
@@ -188,7 +186,7 @@ class ViewBase:
 
     def _build_list_response(
         self,
-        items_from_db: List[TypeModel],
+        items_from_db: list[TypeModel],
         count: int,
         total_pages: int,
     ) -> JSONAPIResultListSchema:
@@ -207,28 +205,14 @@ class ViewBase:
             **extras,
         )
 
-    # data preparing below:
-
-    @classmethod
-    def get_db_item_id(cls, item_from_db: TypeModel):
-        """
-        just converts to str. maybe needs another approach
-
-        TODO: check if id is None? raise?
-        TODO: any another conversion for id to string?
-        :param item_from_db:
-        :return:
-        """
-        return str(item_from_db.id)
-
     @classmethod
     def prepare_related_object_data(
         cls,
         item_from_db: TypeModel,
-    ) -> Tuple[Dict[str, Union[str, int]], Optional[TypeSchema]]:
+    ) -> tuple[dict[str, Union[str, int]], Optional[TypeSchema]]:
         included_object_schema: Type[TypeSchema] = included_object_schema_ctx_var.get()
         relationship_info: RelationshipInfo = relationship_info_ctx_var.get()
-        item_id = cls.get_db_item_id(item_from_db)
+        item_id = f"{item_from_db.id}"
         data_for_relationship = {"id": item_id}
         processed_object = included_object_schema(
             id=item_id,
@@ -241,8 +225,8 @@ class ViewBase:
     @classmethod
     def prepare_data_for_relationship(
         cls,
-        related_db_item: Union[List[TypeModel], TypeModel],
-    ) -> Tuple[Optional[Dict[str, Union[str, int]]], List[TypeSchema]]:
+        related_db_item: Union[list[TypeModel], TypeModel],
+    ) -> tuple[Optional[dict[str, Union[str, int]]], list[TypeSchema]]:
         included_objects = []
         if related_db_item is None:
             return None, included_objects
@@ -257,13 +241,13 @@ class ViewBase:
     @classmethod
     def update_related_object(
         cls,
-        relationship_data: Union[Dict[str, str], List[Dict[str, str]]],
-        cache_key: Tuple[str, str],
+        relationship_data: Union[dict[str, str], list[dict[str, str]]],
+        cache_key: tuple[str, str],
         related_field_name: str,
     ):
         relationships_schema: Type[BaseModel] = relationships_schema_ctx_var.get()
         object_schema: Type[JSONAPIObjectSchema] = object_schema_ctx_var.get()
-        included_objects: Dict[Tuple[str, str], TypeSchema] = included_objects_ctx_var.get()
+        included_objects: dict[tuple[str, str], TypeSchema] = included_objects_ctx_var.get()
 
         relationship_data_schema = get_related_schema(relationships_schema, related_field_name)
         parent_included_object = included_objects.get(cache_key)
@@ -271,7 +255,7 @@ class ViewBase:
         if hasattr(parent_included_object, "relationships") and parent_included_object.relationships:
             existing = parent_included_object.relationships or {}
             if isinstance(existing, BaseModel):
-                existing = existing.dict()
+                existing = existing.model_dump()
             new_relationships.update(existing)
         new_relationships.update(
             **{
@@ -280,18 +264,20 @@ class ViewBase:
                 ),
             },
         )
-        included_objects[cache_key] = object_schema.parse_obj(
-            parent_included_object,
-        ).copy(
+        included_objects[cache_key] = object_schema.model_validate(
+            obj=parent_included_object.model_dump(
+                exclude={"relationships"} if getattr(parent_included_object, "relationships", None) is None else None,
+            ),
+        ).model_copy(
             update={"relationships": new_relationships},
         )
 
     @classmethod
     def update_known_included(
         cls,
-        new_included: List[TypeSchema],
+        new_included: list[TypeSchema],
     ):
-        included_objects: Dict[Tuple[str, str], TypeSchema] = included_objects_ctx_var.get()
+        included_objects: dict[tuple[str, str], TypeSchema] = included_objects_ctx_var.get()
 
         for included in new_included:
             key = (included.id, included.type)
@@ -307,7 +293,7 @@ class ViewBase:
         related_field_name: str = related_field_name_ctx_var.get()
 
         next_current_db_item = []
-        cache_key = (cls.get_db_item_id(parent_db_item), previous_resource_type)
+        cache_key = (f"{parent_db_item.id}", previous_resource_type)
         current_db_item = getattr(parent_db_item, related_field_name)
         current_is_single = False
         if not isinstance(current_db_item, Iterable):
@@ -343,7 +329,7 @@ class ViewBase:
     @classmethod
     def process_db_items_and_prepare_includes(
         cls,
-        parent_db_items: List[TypeModel],
+        parent_db_items: list[TypeModel],
     ):
         next_current_db_item = []
 
@@ -357,12 +343,12 @@ class ViewBase:
     def process_include_with_nested(
         self,
         include: str,
-        current_db_item: Union[List[TypeModel], TypeModel],
+        current_db_item: Union[list[TypeModel], TypeModel],
         item_as_schema: TypeSchema,
         current_relation_schema: Type[TypeSchema],
-        included_objects: Dict[Tuple[str, str], TypeSchema],
-        requested_includes: Dict[str, Iterable[str]],
-    ) -> Tuple[Dict[str, TypeSchema], List[JSONAPIObjectSchema]]:
+        included_objects: dict[tuple[str, str], TypeSchema],
+        requested_includes: dict[str, Iterable[str]],
+    ) -> tuple[dict[str, TypeSchema], list[JSONAPIObjectSchema]]:
         root_item_key = (item_as_schema.id, item_as_schema.type)
 
         if root_item_key not in included_objects:
@@ -379,10 +365,10 @@ class ViewBase:
             relationships_schema = object_schemas.relationships_schema
             schemas_include = object_schemas.can_be_included_schemas
 
-            current_relation_field: ModelField = current_relation_schema.__fields__[related_field_name]
-            current_relation_schema: Type[TypeSchema] = current_relation_field.type_
+            current_relation_field: FieldInfo = current_relation_schema.model_fields[related_field_name]
+            current_relation_schema: Type[TypeSchema] = get_schema_from_field_annotation(current_relation_field)
 
-            relationship_info: RelationshipInfo = current_relation_field.field_info.extra["relationship"]
+            relationship_info: RelationshipInfo = get_relationship_info_from_field_metadata(current_relation_field)
             included_object_schema: Type[JSONAPIObjectSchema] = schemas_include[related_field_name]
 
             if not isinstance(current_db_item, Iterable):
@@ -408,7 +394,7 @@ class ViewBase:
         return included_objects.pop(root_item_key), list(included_objects.values())
 
     def prep_requested_includes(self, includes: Iterable[str]):
-        requested_includes: Dict[str, set[str]] = defaultdict(set)
+        requested_includes: dict[str, set[str]] = defaultdict(set)
         default: str = self.jsonapi.type_
         for include in includes:
             prev = default
@@ -420,7 +406,7 @@ class ViewBase:
 
     def process_db_object(
         self,
-        includes: List[str],
+        includes: list[str],
         item: TypeModel,
         item_schema: Type[TypeSchema],
         object_schemas: JSONAPIObjectSchemas,
@@ -428,11 +414,11 @@ class ViewBase:
         included_objects = []
 
         item_as_schema = object_schemas.object_jsonapi_schema(
-            id=self.get_db_item_id(item),
-            attributes=object_schemas.attributes_schema.from_orm(item),
+            id=f"{item.id}",
+            attributes=object_schemas.attributes_schema.model_validate(item),
         )
 
-        cache_included_objects: Dict[Tuple[str, str], TypeSchema] = {}
+        cache_included_objects: dict[tuple[str, str], TypeSchema] = {}
         requested_includes = self.prep_requested_includes(includes)
 
         for include in includes:
@@ -451,8 +437,8 @@ class ViewBase:
 
     def process_includes_for_db_items(
         self,
-        includes: List[str],
-        items_from_db: List[TypeModel],
+        includes: list[str],
+        items_from_db: list[TypeModel],
         item_schema: Type[TypeSchema],
     ):
         object_schemas = self.jsonapi.schema_builder.create_jsonapi_object_schemas(
@@ -466,7 +452,7 @@ class ViewBase:
         # form:
         # `(type, id): serialized_object`
         # helps to exclude duplicates
-        included_objects: Dict[Tuple[str, str], TypeSchema] = {}
+        included_objects: dict[tuple[str, str], TypeSchema] = {}
         for item in items_from_db:
             jsonapi_object, new_included = self.process_db_object(
                 includes=includes,

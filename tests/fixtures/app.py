@@ -3,8 +3,35 @@ from typing import Optional, Type
 
 import pytest
 from fastapi import APIRouter, FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
+from examples.api_for_sqlalchemy.schemas import (
+    AlphaSchema,
+    BetaSchema,
+    ChildInSchema,
+    ChildPatchSchema,
+    ChildSchema,
+    ComputerInSchema,
+    ComputerPatchSchema,
+    ComputerSchema,
+    CustomUUIDItemSchema,
+    DeltaSchema,
+    GammaSchema,
+    ParentPatchSchema,
+    ParentSchema,
+    ParentToChildAssociationSchema,
+    PostCommentSchema,
+    PostInSchema,
+    PostPatchSchema,
+    PostSchema,
+    TaskInSchema,
+    TaskPatchSchema,
+    TaskSchema,
+    UserBioBaseSchema,
+    UserInSchema,
+    UserPatchSchema,
+    UserSchema,
+)
 from fastapi_jsonapi import RoutersJSONAPI, init
 from fastapi_jsonapi.atomic import AtomicOperations
 from fastapi_jsonapi.data_typing import TypeModel
@@ -29,33 +56,6 @@ from tests.models import (
     Task,
     User,
     UserBio,
-)
-from tests.schemas import (
-    AlphaSchema,
-    BetaSchema,
-    ChildInSchema,
-    ChildPatchSchema,
-    ChildSchema,
-    ComputerInSchema,
-    ComputerPatchSchema,
-    ComputerSchema,
-    CustomUUIDItemSchema,
-    DeltaSchema,
-    GammaSchema,
-    ParentPatchSchema,
-    ParentSchema,
-    ParentToChildAssociationSchema,
-    PostCommentSchema,
-    PostInSchema,
-    PostPatchSchema,
-    PostSchema,
-    TaskInSchema,
-    TaskPatchSchema,
-    TaskSchema,
-    UserBioSchema,
-    UserInSchema,
-    UserPatchSchema,
-    UserSchema,
 )
 
 CURRENT_FILE = Path(__file__).resolve()
@@ -122,7 +122,7 @@ def add_routers(app_plain: FastAPI):
         tags=["Bio"],
         class_detail=DetailViewBaseGeneric,
         class_list=ListViewBaseGeneric,
-        schema=UserBioSchema,
+        schema=UserBioBaseSchema,
         resource_type="user_bio",
         model=UserBio,
     )
@@ -294,6 +294,10 @@ def build_alphabet_app() -> FastAPI:
 
 
 class ResourceInfoDTO(BaseModel):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
     path: str
     resource_type: str
     model: Type[TypeModel]
@@ -302,9 +306,6 @@ class ResourceInfoDTO(BaseModel):
     schema_in_post: Optional[BaseModel] = None
     class_list: Type[ListViewBase] = ListViewBaseGeneric
     class_detail: Type[DetailViewBase] = DetailViewBaseGeneric
-
-    class Config:
-        arbitrary_types_allowed = True
 
 
 def build_custom_app_by_schemas(resources_info: list[ResourceInfoDTO]):

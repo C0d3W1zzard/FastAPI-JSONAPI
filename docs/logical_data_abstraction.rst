@@ -45,26 +45,28 @@ Now let's create the logical abstraction to illustrate this concept.
 
     from pydantic import (
         BaseModel,
+        ConfigDict,
         Field,
     )
-    from typing import List
     from datetime import datetime
 
 
     class UserSchema(BaseModel):
-        class Config:
-            orm_mode = True
+        model_config = ConfigDict(
+            from_attributes=True,
+        )
 
         id: int
         name: str
         email: str
         birth_date: datetime
-        computers: List['ComputerSchema']
+        computers: list['ComputerSchema']
 
 
     class ComputerSchema(BaseModel):
-        class Config:
-            orm_mode = True
+        model_config = ConfigDict(
+            from_attributes=True,
+        )
 
         id: int
         serial: str

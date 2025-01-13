@@ -32,7 +32,7 @@ class DependencyHelper:
     async def solve_dependencies_and_run(self, dependant: Dependant) -> ReturnType:
         body_data = await self.request.body() or None
         body = body_data and (await self.request.json())
-        values, errors, *_ = await solve_dependencies(  # WPS110
+        values, errors, *_ = await solve_dependencies(
             request=self.request,
             dependant=dependant,
             body=body,

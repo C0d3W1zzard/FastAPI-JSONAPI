@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from typing import ClassVar, Dict
+from typing import ClassVar
 
 from fastapi import Depends, Header
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import sessionmaker
-from typing_extensions import Annotated
+from typing_extensions import Annotated, Optional
 
 from fastapi_jsonapi.exceptions import Forbidden
 from fastapi_jsonapi.misc.sqla.generics.base import (
@@ -23,7 +23,7 @@ from fastapi_jsonapi.views.view_base import ViewBase
 
 
 def get_async_sessionmaker() -> sessionmaker:
-    _async_session = sessionmaker(
+    return sessionmaker(
         bind=create_async_engine(
             url=make_url(
                 f"sqlite+aiosqlite:///tmp/db.sqlite3",
@@ -32,7 +32,6 @@ def get_async_sessionmaker() -> sessionmaker:
         class_=AsyncSession,
         expire_on_commit=False,
     )
-    return _async_session
 
 
 async def async_session_dependency():
@@ -48,14 +47,17 @@ async def async_session_dependency():
 
 
 class SessionDependency(BaseModel):
-    session: AsyncSession = Depends(async_session_dependency)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
 
-    class Config:
-        arbitrary_types_allowed = True
+    session: AsyncSession = Depends(async_session_dependency)
 
 
 async def common_handler(view: ViewBase, dto: SessionDependency) -> dict:
-    return {"session": dto.session}
+    return {
+        "session": dto.session,
+    }
 
 
 async def check_that_user_is_admin(x_auth: Annotated[str, Header()]):
@@ -64,11 +66,11 @@ async def check_that_user_is_admin(x_auth: Annotated[str, Header()]):
 
 
 class AdminOnlyPermission(BaseModel):
-    is_admin: bool | None = Depends(check_that_user_is_admin)
+    is_admin: Optional[bool] = Depends(check_that_user_is_admin)
 
 
 class DetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
+    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
         HTTPMethod.ALL: HTTPMethodConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
@@ -77,7 +79,7 @@ class DetailView(DetailViewBaseGeneric):
 
 
 class ListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
+    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
         HTTPMethod.GET: HTTPMethodConfig(dependencies=AdminOnlyPermission),
         HTTPMethod.ALL: HTTPMethodConfig(
             dependencies=SessionDependency,

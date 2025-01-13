@@ -7,9 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette import status
 
+from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema
 from tests.misc.utils import fake
 from tests.models import User
-from tests.schemas import UserAttributesBaseSchema
 
 FIELD_CUSTOM_NAME = "custom_name"
 
@@ -42,13 +42,12 @@ class BaseGenericUserCreateUpdateWithBodyDependency:
         user_attributes: UserAttributesBaseSchema,
         resource_type: str,
     ):
-        data_user_attributes = user_attributes.dict()
+        data_user_attributes = user_attributes.model_dump()
         data_user_attributes[self.FIELD_CUSTOM_NAME] = self.validator_create.expected_value
-        data_user_create = {
+        return {
             "type": resource_type,
             "attributes": data_user_attributes,
         }
-        return data_user_create
 
     def prepare_user_update_data(
         self,
@@ -59,29 +58,22 @@ class BaseGenericUserCreateUpdateWithBodyDependency:
         for field_name, value in user_attributes:
             assert getattr(user, field_name) != value
 
-        data_user_attributes = user_attributes.dict()
+        data_user_attributes = user_attributes.model_dump()
         data_user_attributes[self.FIELD_CUSTOM_NAME] = self.validator_update.expected_value
-        data_user_update = {
-            "id": user.id,
+        return {
+            "id": f"{user.id}",
             "type": resource_type,
             "attributes": data_user_attributes,
         }
-        return data_user_update
 
     def validate_field_not_passed_response(self, response, expected_status=status.HTTP_422_UNPROCESSABLE_ENTITY):
         assert response.status_code == expected_status, response.text
         response_data = response.json()
-        assert response_data == {
-            "detail": [
-                {
-                    "loc": ["body", "data", "attributes", self.FIELD_CUSTOM_NAME],
-                    "msg": "field required",
-                    "type": "value_error.missing",
-                },
-            ],
-        }
+        assert response_data["detail"][0]["loc"] == ["body", "data", "attributes", self.FIELD_CUSTOM_NAME]
+        assert response_data["detail"][0]["msg"] == "Field required"
 
-    def validate_field_value_invalid_response(self, response, validator: ValidateCustomNameEqualsBase):
+    @classmethod
+    def validate_field_value_invalid_response(cls, response, validator: ValidateCustomNameEqualsBase):
         assert response.status_code == validator.STATUS_ON_ERROR, response.text
         response_data = response.json()
         assert response_data["detail"].pop("error")
@@ -98,7 +90,7 @@ class BaseGenericUserCreateUpdateWithBodyDependency:
         resource_type: str,
         user_attributes: UserAttributesBaseSchema,
     ):
-        attributes_data = user_attributes.dict()
+        attributes_data = user_attributes.model_dump()
         assert self.FIELD_CUSTOM_NAME not in attributes_data
         data_user_create = {
             "data": {
@@ -117,7 +109,7 @@ class BaseGenericUserCreateUpdateWithBodyDependency:
         resource_type: str,
         user_attributes: UserAttributesBaseSchema,
     ):
-        attributes_data = user_attributes.dict()
+        attributes_data = user_attributes.model_dump()
         attributes_data[self.FIELD_CUSTOM_NAME] = fake.word()
         assert attributes_data[self.FIELD_CUSTOM_NAME] != self.validator_create.expected_value
         data_user_create = {
@@ -138,11 +130,11 @@ class BaseGenericUserCreateUpdateWithBodyDependency:
         resource_type: str,
         user_attributes: UserAttributesBaseSchema,
     ):
-        attributes_data = user_attributes.dict()
+        attributes_data = user_attributes.model_dump()
         assert self.FIELD_CUSTOM_NAME not in attributes_data
         data_user_update = {
             "data": {
-                "id": user.id,
+                "id": f"{user.id}",
                 "type": resource_type,
                 "attributes": attributes_data,
             },
@@ -159,12 +151,12 @@ class BaseGenericUserCreateUpdateWithBodyDependency:
         resource_type: str,
         user_attributes: UserAttributesBaseSchema,
     ):
-        attributes_data = user_attributes.dict()
+        attributes_data = user_attributes.model_dump()
         attributes_data[self.FIELD_CUSTOM_NAME] = fake.word()
         assert attributes_data[self.FIELD_CUSTOM_NAME] != self.validator_update.expected_value
         data_user_update = {
             "data": {
-                "id": user.id,
+                "id": f"{user.id}",
                 "type": resource_type,
                 "attributes": attributes_data,
             },
@@ -191,10 +183,10 @@ class BaseGenericUserCreateUpdateWithBodyDependency:
             ),
         )
         assert isinstance(user, User)
-        assert user_created_data["id"] == str(user.id)
-        assert user_created_data["attributes"] == user_attributes.dict()
+        assert user_created_data["id"] == f"{user.id}"
+        assert user_created_data["attributes"] == user_attributes.model_dump()
         assert user_created_data["type"] == resource_type
-        assert user_attributes == UserAttributesBaseSchema.from_orm(user)
+        assert user_attributes == UserAttributesBaseSchema.model_validate(user)
 
     async def validate_generic_user_create_works(
         self,
@@ -220,8 +212,9 @@ class BaseGenericUserCreateUpdateWithBodyDependency:
             resource_type=resource_type,
         )
 
+    @classmethod
     async def validate_updated_user(
-        self,
+        cls,
         user: User,
         async_session: AsyncSession,
         user_updated_data: dict,
@@ -229,10 +222,10 @@ class BaseGenericUserCreateUpdateWithBodyDependency:
         resource_type: str,
     ):
         await async_session.refresh(user)
-        assert user_updated_data["id"] == str(user.id)
-        assert user_updated_data["attributes"] == user_attributes.dict()
+        assert user_updated_data["id"] == f"{user.id}"
+        assert user_updated_data["attributes"] == user_attributes.model_dump()
         assert user_updated_data["type"] == resource_type
-        assert user_attributes == UserAttributesBaseSchema.from_orm(user)
+        assert user_attributes == UserAttributesBaseSchema.model_validate(user)
 
     async def validate_generic_user_update_works(
         self,

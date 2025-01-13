@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
 from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, String, Text
@@ -74,7 +74,6 @@ class User(AutoIdMixin, Base):
 class UserBio(AutoIdMixin, Base):
     birth_city: str = Column(String, nullable=False, default="", server_default="")
     favourite_movies: str = Column(String, nullable=False, default="", server_default="")
-    keys_to_ids_list: Dict[str, List[int]] = Column(JSON)
 
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
     user = relationship(
@@ -260,7 +259,7 @@ class CustomUUIDType(TypeDecorator):
             msg = f"Incorrect type got {type(value).__name__}, expected {UUID.__name__}"
             raise Exception(msg)
 
-        return str(value)
+        return f"{value}"
 
     def process_result_value(self, value, dialect):
         return value and UUID(value)
@@ -346,14 +345,14 @@ class Beta(Base):
     __tablename__ = "beta"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    gammas: List["Gamma"] = relationship(
+    gammas: list["Gamma"] = relationship(
         "Gamma",
         secondary="beta_gamma_binding",
         back_populates="betas",
         lazy="noload",
     )
     alphas = relationship("Alpha")
-    deltas: List["Delta"] = relationship(
+    deltas: list["Delta"] = relationship(
         "Delta",
         secondary="beta_delta_binding",
         lazy="noload",
@@ -364,7 +363,7 @@ class Gamma(Base):
     __tablename__ = "gamma"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    betas: List["Beta"] = relationship(
+    betas: list["Beta"] = relationship(
         "Beta",
         secondary="beta_gamma_binding",
         back_populates="gammas",
@@ -393,8 +392,8 @@ class Delta(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String)
-    gammas: List["Gamma"] = relationship("Gamma", back_populates="delta", lazy="noload")
-    betas: List["Beta"] = relationship("Beta", secondary="beta_delta_binding", back_populates="deltas", lazy="noload")
+    gammas: list["Gamma"] = relationship("Gamma", back_populates="delta", lazy="noload")
+    betas: list["Beta"] = relationship("Beta", secondary="beta_delta_binding", back_populates="deltas", lazy="noload")
 
 
 class CascadeCase(Base):

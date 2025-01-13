@@ -1,10 +1,16 @@
-from typing import ClassVar, Dict
+from typing import ClassVar
 
 import pytest
 from fastapi import Depends, Query, status
 from httpx import AsyncClient
 from pytest_asyncio import fixture
 
+from examples.api_for_sqlalchemy.schemas import (
+    UserAttributesBaseSchema,
+    UserInSchema,
+    UserPatchSchema,
+    UserSchema,
+)
 from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
 from fastapi_jsonapi.views.utils import (
     HTTPMethod,
@@ -14,12 +20,6 @@ from tests.fixtures.app import build_app_custom
 from tests.fixtures.views import ArbitraryModelBase, SessionDependency, common_handler
 from tests.misc.utils import fake
 from tests.models import User
-from tests.schemas import (
-    UserAttributesBaseSchema,
-    UserInSchema,
-    UserPatchSchema,
-    UserSchema,
-)
 
 pytestmark = pytest.mark.asyncio
 
@@ -58,7 +58,7 @@ class UserDeleteCustomDependency(ArbitraryModelBase):
 
 
 class UserCustomListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
+    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
         HTTPMethod.ALL: HTTPMethodConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
@@ -70,7 +70,7 @@ class UserCustomListView(ListViewBaseGeneric):
 
 
 class UserCustomDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
+    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
         HTTPMethod.ALL: HTTPMethodConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
@@ -136,7 +136,7 @@ class TestDependenciesResolver:
                     "op": "add",
                     "data": {
                         "type": resource_type,
-                        "attributes": user.dict(),
+                        "attributes": user.model_dump(),
                     },
                 },
             ],
@@ -145,9 +145,11 @@ class TestDependenciesResolver:
         expected_response_data = {
             "detail": [
                 {
+                    "input": None,
                     "loc": ["query", CustomDependencyForCreate.KEY],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "msg": "Field required",
+                    "type": "missing",
+                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -172,20 +174,23 @@ class TestDependenciesResolver:
             "atomic:operations": [
                 {
                     "op": "update",
-                    "id": user_1.id,
+                    "id": f"{user_1.id}",
                     "data": {
                         "type": resource_type,
-                        "attributes": user.dict(),
+                        "attributes": user.model_dump(),
                     },
                 },
             ],
-        }  # TODO: JSON:API exception
+        }
+        # TODO: JSON:API exception
         expected_response_data = {
             "detail": [
                 {
+                    "input": None,
                     "loc": ["query", CustomDependencyForUpdate.KEY],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "msg": "Field required",
+                    "type": "missing",
+                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -206,7 +211,7 @@ class TestDependenciesResolver:
                 {
                     "op": "remove",
                     "ref": {
-                        "id": user_1.id,
+                        "id": f"{user_1.id}",
                         "type": resource_type,
                     },
                 },
@@ -216,9 +221,11 @@ class TestDependenciesResolver:
         expected_response_data = {
             "detail": [
                 {
+                    "input": None,
                     "loc": ["query", CustomDependencyForDelete.KEY],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "msg": "Field required",
+                    "type": "missing",
+                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }

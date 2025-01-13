@@ -1,9 +1,10 @@
 import sys
 from pathlib import Path
-from typing import Any, ClassVar, Dict
+from typing import Any, ClassVar
 
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI
+from pydantic import ConfigDict
 from sqlalchemy import Column, Integer, Text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -20,7 +21,7 @@ CURRENT_FILE = Path(__file__).resolve()
 CURRENT_DIR = CURRENT_FILE.parent
 PROJECT_DIR = CURRENT_DIR.parent.parent
 DB_URL = f"sqlite+aiosqlite:///{CURRENT_DIR}/db.sqlite3"
-sys.path.append(str(PROJECT_DIR))
+sys.path.append(f"{PROJECT_DIR}")
 
 Base = declarative_base()
 
@@ -32,10 +33,11 @@ class User(Base):
 
 
 class UserAttributesBaseSchema(BaseModel):
-    name: str
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
 
-    class Config:
-        orm_mode = True
+    name: str
 
 
 class UserSchema(UserAttributesBaseSchema):
@@ -44,8 +46,7 @@ class UserSchema(UserAttributesBaseSchema):
 
 def async_session() -> sessionmaker:
     engine = create_async_engine(url=make_url(DB_URL))
-    _async_session = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
-    return _async_session
+    return sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 
 
 class Connector:
@@ -69,13 +70,14 @@ async def sqlalchemy_init() -> None:
 
 
 class SessionDependency(BaseModel):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
     session: AsyncSession = Depends(Connector.get_session)
 
-    class Config:
-        arbitrary_types_allowed = True
 
-
-def session_dependency_handler(view: ViewBase, dto: SessionDependency) -> Dict[str, Any]:
+def session_dependency_handler(view: ViewBase, dto: SessionDependency) -> dict[str, Any]:
     return {
         "session": dto.session,
     }

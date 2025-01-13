@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import Awaitable, Callable, List
+from typing import Awaitable, Callable, Optional
 
 from pytest import fixture  # noqa
 from pytest_asyncio import fixture as async_fixture
@@ -84,7 +82,6 @@ async def user_1_bio(async_session: AsyncSession, user_1: User) -> UserBio:
         user_1,
         birth_city="Moscow",
         favourite_movies="Django, Alien",
-        keys_to_ids_list={"key": [1, 2, 3]},
     )
 
 
@@ -95,7 +92,6 @@ async def user_2_bio(async_session: AsyncSession, user_2: User) -> UserBio:
         user_2,
         birth_city="Snezhnogorsk",
         favourite_movies="A Beautiful Mind, Rocky",
-        keys_to_ids_list={"key": [0, 1, 2]},
     )
 
 
@@ -108,7 +104,7 @@ async def build_post(async_session: AsyncSession, user: User, **fields) -> Post:
 
 
 @async_fixture()
-async def user_1_posts(async_session: AsyncSession, user_1: User) -> List[Post]:
+async def user_1_posts(async_session: AsyncSession, user_1: User) -> list[Post]:
     posts = [
         Post(
             title=f"post_u1_{i}",
@@ -141,7 +137,7 @@ async def user_1_post(async_session: AsyncSession, user_1: User):
 
 
 @async_fixture()
-async def user_2_posts(async_session: AsyncSession, user_2: User) -> List[Post]:
+async def user_2_posts(async_session: AsyncSession, user_2: User) -> list[Post]:
     posts = [
         Post(
             title=f"post_u2_{i}",
@@ -183,7 +179,7 @@ async def user_1_comments_for_u2_posts(async_session: AsyncSession, user_1, user
 
 
 @fixture()
-def user_1_post_for_comments(user_1_posts: List[Post]) -> Post:
+def user_1_post_for_comments(user_1_posts: list[Post]) -> Post:
     return user_1_posts[0]
 
 
@@ -216,8 +212,8 @@ async def computer_2(async_session: AsyncSession):
 
 
 @async_fixture()
-async def computer_factory(async_session: AsyncSession) -> Callable[[str | None], Awaitable[Computer]]:
-    async def factory(name: str | None = None) -> Computer:
+async def computer_factory(async_session: AsyncSession) -> Callable[[Optional[str]], Awaitable[Computer]]:
+    async def factory(name: Optional[str] = None) -> Computer:
         computer = Computer(name=name or fake.word())
         async_session.add(computer)
         await async_session.commit()

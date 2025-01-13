@@ -41,14 +41,14 @@ class TestAtomicDeleteObjects:
                 {
                     "op": "remove",
                     "ref": {
-                        "id": str(computer_1.id),
+                        "id": f"{computer_1.id}",
                         "type": "computer",
                     },
                 },
                 {
                     "op": "remove",
                     "ref": {
-                        "id": str(computer_2.id),
+                        "id": f"{computer_2.id}",
                         "type": "computer",
                     },
                 },
@@ -79,12 +79,22 @@ class TestAtomicDeleteObjects:
         response = await client.post("/operations", json=data_atomic_request)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         assert response.json() == {
-            # TODO: json:api exception
             "detail": [
                 {
-                    "loc": ["body", "atomic:operations", 0, "__root__"],
-                    "msg": f"ref should be present for action {AtomicOperationAction.remove.value!r}",
+                    "ctx": {
+                        "error": {},
+                    },
+                    "input": {
+                        "data": {
+                            "id": "0",
+                            "type": "computer",
+                        },
+                        "op": "remove",
+                    },
+                    "loc": ["body", "atomic:operations", 0],
+                    "msg": f"Value error, ref should be present for action {AtomicOperationAction.remove.value!r}",
                     "type": "value_error",
+                    "url": "https://errors.pydantic.dev/2.10/v/value_error",
                 },
             ],
         }

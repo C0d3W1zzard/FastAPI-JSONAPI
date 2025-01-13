@@ -31,10 +31,11 @@ Create a test.py file and copy the following code into it
 
 ```python
 from pathlib import Path
-from typing import Any, ClassVar, Dict
+from typing import Any, ClassVar
 
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI
+from pydantic import ConfigDict
 from sqlalchemy import Column, Integer, Text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -61,12 +62,11 @@ class User(Base):
 
 
 class UserAttributesBaseSchema(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
+
     name: str
-
-    class Config:
-        """Pydantic schema config."""
-
-        orm_mode = True
 
 
 class UserSchema(UserAttributesBaseSchema):
@@ -108,20 +108,21 @@ async def sqlalchemy_init() -> None:
 
 
 class SessionDependency(BaseModel):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
     session: AsyncSession = Depends(Connector.get_session)
 
-    class Config:
-        arbitrary_types_allowed = True
 
-
-def session_dependency_handler(view: ViewBase, dto: SessionDependency) -> Dict[str, Any]:
+def session_dependency_handler(view: ViewBase, dto: SessionDependency) -> dict[str, Any]:
     return {
         "session": dto.session,
     }
 
 
 class UserDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
+    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
         HTTPMethod.ALL: HTTPMethodConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=session_dependency_handler,
@@ -130,7 +131,7 @@ class UserDetailView(DetailViewBaseGeneric):
 
 
 class UserListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
+    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
         HTTPMethod.ALL: HTTPMethodConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=session_dependency_handler,
@@ -190,7 +191,7 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8080,
         reload=True,
-        app_dir=str(CURRENT_DIR),
+        app_dir=f"{CURRENT_DIR}",
     )
 ```
 
