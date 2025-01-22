@@ -5,10 +5,12 @@ In module placed db initialization functions, app factory.
 """
 
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import ORJSONResponse as JSONResponse
 
 from examples.api_for_sqlalchemy.api.views_base import db
 from examples.api_for_sqlalchemy.models.base import Base
@@ -19,34 +21,34 @@ CURRENT_DIR = Path(__file__).resolve().parent
 sys.path.append(f"{CURRENT_DIR.parent.parent}")
 
 
-async def sqlalchemy_init() -> None:
+# noinspection PyUnusedLocal
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.config = {"MAX_INCLUDE_DEPTH": 5}
+    add_routes(app)
+    init(app)
+
     async with db.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    yield
 
-def create_app() -> FastAPI:
-    """
-    Create app factory.
+    await db.engine.dispose()
 
-    :return: app
-    """
-    app = FastAPI(
-        title="FastAPI and SQLAlchemy",
-        debug=True,
-        openapi_url="/openapi.json",
-        docs_url="/docs",
-    )
-    app.config = {"MAX_INCLUDE_DEPTH": 5}
-    add_routes(app)
-    app.on_event("startup")(sqlalchemy_init)
-    app.on_event("shutdown")(db.dispose)
-    init(app)
-    return app
+
+app = FastAPI(
+    title="FastAPI and SQLAlchemy",
+    lifespan=lifespan,
+    debug=True,
+    default_response_class=JSONResponse,
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+)
 
 
 if __name__ == "__main__":
     uvicorn.run(
-        "asgi:app",
+        "main:app",
         host="0.0.0.0",
         port=8082,
         reload=True,

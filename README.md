@@ -30,6 +30,7 @@ pip install FastAPI-JSONAPI
 Create a test.py file and copy the following code into it
 
 ```python
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, ClassVar, Optional
 
@@ -171,26 +172,26 @@ def add_routes(app: FastAPI):
     return tags
 
 
-def create_app() -> FastAPI:
-    """
-    Create app factory.
-
-    :return: app
-    """
-    app = FastAPI(
-        title="FastAPI and SQLAlchemy",
-        debug=True,
-        openapi_url="/openapi.json",
-        docs_url="/docs",
-    )
+# noinspection PyUnusedLocal
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     add_routes(app)
-    app.on_event("startup")(Connector.init)
-    app.on_event("shutdown")(Connector.dispose)
     init(app)
-    return app
+
+    await Connector.init()
+
+    yield
+
+    await Connector.dispose()
 
 
-app = create_app()
+app = FastAPI(
+    lifespan=lifespan,
+    title="FastAPI and SQLAlchemy",
+    debug=True,
+    openapi_url="/openapi.json",
+    docs_url="/docs",
+)
 
 
 if __name__ == "__main__":

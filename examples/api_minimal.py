@@ -1,9 +1,11 @@
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, ClassVar, Optional
 
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI
+from fastapi.responses import ORJSONResponse as JSONResponse
 from pydantic import ConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,11 +44,6 @@ class UserSchema(BaseModel):
     )
 
     name: str
-
-
-async def sqlalchemy_init() -> None:
-    async with db.engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
 
 class SessionDependency(BaseModel):
@@ -105,26 +102,28 @@ def add_routes(app: FastAPI):
     return tags
 
 
-def create_app() -> FastAPI:
-    """
-    Create app factory.
-
-    :return: app
-    """
-    app = FastAPI(
-        title="FastAPI and SQLAlchemy",
-        debug=True,
-        openapi_url="/openapi.json",
-        docs_url="/docs",
-    )
+# noinspection PyUnusedLocal
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     add_routes(app)
-    app.on_event("startup")(sqlalchemy_init)
-    app.on_event("shutdown")(db.dispose)
     init(app)
-    return app
+
+    async with db.engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    yield
+
+    await db.dispose()
 
 
-app = create_app()
+app = FastAPI(
+    title="FastAPI and SQLAlchemy",
+    lifespan=lifespan,
+    debug=True,
+    default_response_class=JSONResponse,
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+)
 
 
 if __name__ == "__main__":

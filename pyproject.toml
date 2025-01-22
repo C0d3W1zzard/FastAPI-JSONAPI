@@ -27,10 +27,9 @@ classifiers = [
     "Topic :: Utilities",
 ]
 dependencies = [
-    "fastapi>=0.100.0",
+    "fastapi>=0.112.3",
     "orjson>=3.2.1",
     "pydantic>=2.6.0",
-    "uvicorn>=0.18.2",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +37,7 @@ all = [
     "pytest",
     "sphinx",
     "SQLAlchemy[asyncio]>=2.0.26",
+    "uvicorn>=0.18.2",
 ]
 docs = [
     "sphinx",
@@ -47,6 +47,9 @@ sqlalchemy = [
 ]
 tests = [
     "pytest",
+]
+uvicorn = [
+    "uvicorn>=0.18.2",
 ]
 
 [project.urls]
@@ -73,11 +76,11 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.9"
-fastapi = ">=0.100.0"
+fastapi = ">=0.112.3"
 orjson = ">=3.2.1"
 pydantic = ">=2.6.0"
-uvicorn = ">=0.18.2"
 
+uvicorn = { version = ">=0.18.2", optional = true }
 sqlalchemy = { version = ">=2.0.26", optional = true, extras = ["asyncio"] }
 
 [tool.poetry.group.tests.dependencies]
@@ -109,6 +112,7 @@ hatch = "^1.7.0"
 [tool.poetry.extras]
 sqla = ["sqlalchemy"]
 databases = ["sqlalchemy"]
+uvicorn = ["uvicorn"]
 
 [tool.black]
 line-length = 119

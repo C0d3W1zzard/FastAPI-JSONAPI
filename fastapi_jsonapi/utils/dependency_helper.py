@@ -1,4 +1,5 @@
 import inspect
+from contextlib import AsyncExitStack
 from typing import Any, Awaitable, Callable, TypeVar, Union
 
 from fastapi import Request
@@ -23,20 +24,23 @@ class DependencyHelper:
     async def solve_dependencies_and_run(self, dependant: Dependant) -> ReturnType:
         body_data = await self.request.body() or None
         body = body_data and (await self.request.json())
-        values, errors, *_ = await solve_dependencies(
-            request=self.request,
-            dependant=dependant,
-            body=body,
-        )
+        async with AsyncExitStack() as async_exit_stack:
+            solved_dependencies = await solve_dependencies(
+                request=self.request,
+                dependant=dependant,
+                body=body,
+                async_exit_stack=async_exit_stack,
+                embed_body_fields=True,
+            )
 
-        if errors:
-            raise RequestValidationError(errors, body=body)
+        if solved_dependencies.errors:
+            raise RequestValidationError(solved_dependencies.errors, body=body)
 
         orig_func: Callable[..., FuncReturnType[Any]] = dependant.call  # type: ignore
         if inspect.iscoroutinefunction(orig_func):
-            function_call_result = await orig_func(**values)
+            function_call_result = await orig_func(**solved_dependencies.values)
         else:
-            function_call_result = orig_func(**values)
+            function_call_result = orig_func(**solved_dependencies.values)
 
         return function_call_result
 

@@ -1,4 +1,4 @@
-fastapi>0.100.0
+fastapi>=0.112.3
 orjson>=3.2.1
 pydantic>=2.6.0
 sphinx
