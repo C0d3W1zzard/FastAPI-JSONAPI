@@ -11,7 +11,7 @@ from typing import (
 )
 from urllib.parse import unquote
 
-import simplejson as json
+import orjson as json
 from fastapi import (
     FastAPI,
     Request,

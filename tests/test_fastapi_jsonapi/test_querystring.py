@@ -1,6 +1,6 @@
-import json
 from unittest.mock import MagicMock
 
+import orjson as json
 import pytest
 from fastapi import status
 from starlette.datastructures import QueryParams
@@ -70,7 +70,7 @@ def test_filters__errors():
                         "op": "",
                         "val": "",
                     },
-                ),
+                ).decode(),
             ),
         ],
     )

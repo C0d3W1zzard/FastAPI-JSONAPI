@@ -3,9 +3,9 @@ import importlib
 import logging
 from http import HTTPStatus
 
-import requests
-import simplejson
 import argparse
+import orjson as json
+import requests
 
 parser = argparse.ArgumentParser()
 parser.add_argument("prefix", help="Snippets prefix to process. Like 'minimal_api', 'relationship_', etc")
@@ -14,7 +14,6 @@ parser.add_argument("-v", "--verbose", help="set logging level to DEBUG", action
 log = logging.getLogger(__name__)
 
 SNIPPETS_DIR = "snippets"
-SORT_KEYS_ON_DUMP = True
 SNIPPET_RESULT_POSTFIX = "_result"
 REMOVE_PYTHON_SNIPPET = True
 
@@ -83,11 +82,10 @@ def run_request_for_module(module_name: str):
     if response.content:
         # TODO: handle non-json response?
         http_response_text.append(
-            simplejson.dumps(
+            json.dumps(
                 response.json(),
-                sort_keys=SORT_KEYS_ON_DUMP,
-                indent=2,
-            ),
+                option=json.OPT_INDENT_2 | json.OPT_SORT_KEYS,
+            ).decode(),
         )
 
     http_response_text.append("")

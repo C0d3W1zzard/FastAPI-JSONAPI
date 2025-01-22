@@ -1,14 +1,13 @@
-import json
 import logging
 from collections import defaultdict
 from contextlib import suppress
 from datetime import datetime, timezone
 from itertools import chain, zip_longest
-from json import dumps, loads
 from typing import Dict, List, Literal, Set, Tuple
 from unittest.mock import call, patch
 from uuid import UUID, uuid4
 
+import orjson as json
 import pytest
 from fastapi import FastAPI, status
 from httpx import AsyncClient
@@ -1599,7 +1598,7 @@ class TestCreateObjects:
         )
         create_body = {
             "data": {
-                "attributes": loads(create_attributes.json()),
+                "attributes": json.loads(create_attributes.json()),
                 "id": new_id,
             },
         }
@@ -1609,7 +1608,7 @@ class TestCreateObjects:
         assert res.status_code == status.HTTP_201_CREATED, res.text
         assert res.json() == {
             "data": {
-                "attributes": loads(create_attributes.json()),
+                "attributes": json.loads(create_attributes.json()),
                 "id": new_id,
                 "type": resource_type,
             },
@@ -1756,7 +1755,7 @@ class TestCreateObjects:
                             "val": create_timestamp.isoformat(),
                         },
                     ],
-                ),
+                ).decode(),
             }
 
             # successfully filtered
@@ -1784,7 +1783,7 @@ class TestCreateObjects:
                             "val": datetime.now(tz=timezone.utc).isoformat(),
                         },
                     ],
-                ),
+                ).decode(),
             }
             res = await client.get(url, params=params)
             assert res.status_code == status.HTTP_200_OK, res.text
@@ -2585,7 +2584,7 @@ class TestDeleteObjects:
         user_3: User,
     ):
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "id",
@@ -2596,7 +2595,7 @@ class TestDeleteObjects:
                         ],
                     },
                 ],
-            ),
+            ).decode(),
         }
 
         url = app.url_path_for("get_user_list")
@@ -2858,7 +2857,7 @@ class TestFilters:
         target_user = user_2 if expected_email_is_null else user_1
 
         url = app.url_path_for("get_user_list")
-        params = {"filter": dumps(filter_dict)}
+        params = {"filter": json.dumps(filter_dict).decode()}
 
         response = await client.get(url, params=params)
         assert response.status_code == status.HTTP_200_OK, response.text
@@ -2891,7 +2890,7 @@ class TestFilters:
 
         url = app.url_path_for(f"get_{resource_type}_list")
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "email",
@@ -2899,7 +2898,7 @@ class TestFilters:
                         "val": None,
                     },
                 ],
-            ),
+            ).decode(),
         }
 
         async with AsyncClient(app=app, base_url="http://test") as client:
@@ -2949,7 +2948,7 @@ class TestFilters:
         user_1.email = f"{name.upper()}@{domain}"
         await async_session.commit()
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "email",
@@ -2957,7 +2956,7 @@ class TestFilters:
                         "val": f"{name}@{domain.upper()}",
                     },
                 ],
-            ),
+            ).decode(),
         }
         url = app.url_path_for(f"get_{resource_type}_list")
         async with AsyncClient(app=app, base_url="http://test") as client:
@@ -3006,7 +3005,7 @@ class TestFilters:
         user_1.email = f"{name.upper()}@{domain}"
         await async_session.commit()
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "email",
@@ -3014,7 +3013,7 @@ class TestFilters:
                         "val": f"{name}@{domain.upper()}",
                     },
                 ],
-            ),
+            ).decode(),
         }
         url = app.url_path_for(f"get_{resource_type}_list")
         async with AsyncClient(app=app, base_url="http://test") as client:
@@ -3063,7 +3062,7 @@ class TestFilters:
         )
 
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "email",
@@ -3071,7 +3070,7 @@ class TestFilters:
                         "val": "qwerty",
                     },
                 ],
-            ),
+            ).decode(),
         }
         url = app.url_path_for(f"get_{resource_type}_list")
         async with AsyncClient(app=app, base_url="http://test") as client:
@@ -3097,7 +3096,7 @@ class TestFilters:
         user_3: User,
     ):
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "id",
@@ -3108,7 +3107,7 @@ class TestFilters:
                         ],
                     },
                 ],
-            ),
+            ).decode(),
         }
 
         url = app.url_path_for("get_user_list")
@@ -3140,7 +3139,7 @@ class TestFilters:
         user_3: User,
     ):
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "id",
@@ -3156,7 +3155,7 @@ class TestFilters:
                         "val": user_1.name,
                     },
                 ],
-            ),
+            ).decode(),
         }
 
         url = app.url_path_for("get_user_list")
@@ -3183,7 +3182,7 @@ class TestFilters:
         user_3: User,
     ):
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "id",
@@ -3199,7 +3198,7 @@ class TestFilters:
                         "val": user_2.id,
                     },
                 ],
-            ),
+            ).decode(),
         }
 
         url = app.url_path_for("get_user_list")
@@ -3234,7 +3233,7 @@ class TestFilters:
         )
 
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "workplace.name",
@@ -3267,7 +3266,7 @@ class TestFilters:
                         ],
                     },
                 ],
-            ),
+            ).decode(),
         }
 
         url = app.url_path_for("get_user_list")
@@ -3318,7 +3317,7 @@ class TestFilters:
         await async_session.commit()
 
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "posts.comments.text",
@@ -3326,7 +3325,7 @@ class TestFilters:
                         "val": text,
                     },
                 ],
-            ),
+            ).decode(),
         }
 
         url = app.url_path_for("get_user_list")
@@ -3409,7 +3408,7 @@ class TestFilters:
         else:
             params.update(
                 {
-                    "filter": dumps(
+                    "filter": json.dumps(
                         [
                             {
                                 "name": "extra_id",
@@ -3417,7 +3416,7 @@ class TestFilters:
                                 "val": str(extra_id),
                             },
                         ],
-                    ),
+                    ).decode(),
                 },
             )
 
@@ -3427,7 +3426,7 @@ class TestFilters:
         assert res.json() == {
             "data": [
                 {
-                    "attributes": loads(CustomUUIDItemAttributesSchema.from_orm(item).json()),
+                    "attributes": json.loads(CustomUUIDItemAttributesSchema.from_orm(item).json()),
                     "id": str(new_id),
                     "type": resource_type,
                 },
@@ -3460,7 +3459,7 @@ class TestFilters:
         resource_type = "custom_uuid_item"
 
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "id",
@@ -3468,7 +3467,7 @@ class TestFilters:
                         "val": None,
                     },
                 ],
-            ),
+            ).decode(),
         }
         url = app.url_path_for(f"get_{resource_type}_list")
         res = await client.get(url, params=params)
@@ -3507,7 +3506,7 @@ class TestFilters:
         await async_session.commit()
 
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "posts.comments.text",
@@ -3520,7 +3519,7 @@ class TestFilters:
                         "val": comment_2.text,
                     },
                 ],
-            ),
+            ).decode(),
         }
 
         url = app.url_path_for("get_user_list")
@@ -3576,7 +3575,7 @@ class TestFilters:
                             "val": delta_2.name,
                         },
                     ],
-                ),
+                ).decode(),
             }
 
             resource_type = "alpha"
@@ -3620,7 +3619,7 @@ class TestSorts:
         )
 
         params = {
-            "filter": dumps(
+            "filter": json.dumps(
                 [
                     {
                         "name": "id",
@@ -3631,7 +3630,7 @@ class TestSorts:
                         ],
                     },
                 ],
-            ),
+            ).decode(),
             "sort": f"{order}age",
         }
         url = app.url_path_for("get_user_list")
@@ -3675,7 +3674,7 @@ class TestFilteringErrors:
                         "val": "",
                     },
                 ],
-            ),
+            ).decode(),
         }
         response = await client.get(url, params=params)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.text
