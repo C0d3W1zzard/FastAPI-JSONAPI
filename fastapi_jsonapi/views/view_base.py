@@ -3,30 +3,19 @@ import logging
 from collections import defaultdict
 from contextvars import ContextVar
 from functools import partial
-from typing import (
-    Any,
-    Callable,
-    ClassVar,
-    Iterable,
-    Optional,
-    Type,
-    Union,
-)
+from typing import Any, Callable, ClassVar, Iterable, Optional, Type, Union
 
 from fastapi import Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel as PydanticBaseModel
 
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo
-from starlette.concurrency import run_in_threadpool
 
 from fastapi_jsonapi import QueryStringManager, RoutersJSONAPI
 from fastapi_jsonapi.common import get_relationship_info_from_field_metadata
 from fastapi_jsonapi.data_layers.base import BaseDataLayer
-from fastapi_jsonapi.data_typing import (
-    TypeModel,
-    TypeSchema,
-)
+from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.schema import (
     JSONAPIObjectSchema,
     JSONAPIResultListMetaSchema,
@@ -38,10 +27,7 @@ from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.schema_builder import JSONAPIObjectSchemas
 from fastapi_jsonapi.splitter import SPLIT_REL
 from fastapi_jsonapi.types_metadata import RelationshipInfo
-from fastapi_jsonapi.views.utils import (
-    HTTPMethod,
-    HTTPMethodConfig,
-)
+from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
 
 logger = logging.getLogger(__name__)
 

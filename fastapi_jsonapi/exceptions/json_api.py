@@ -1,11 +1,7 @@
 """JSON API exceptions schemas."""
 
 from http import HTTPStatus
-from typing import (
-    Any,
-    Optional,
-    Union,
-)
+from typing import Any, Optional, Union
 
 from fastapi import HTTPException as FastApiHttpException
 from fastapi import status

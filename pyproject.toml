@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "FastAPI-JSONAPI"
 dynamic = ["version"]
-description = "FastAPI extension to create REST web api according to JSON:API 1.0 specification with FastAPI, Pydantic and data provider of your choice (SQLAlchemy, Tortoise ORM)"
+description = "FastAPI extension to create REST web api according to JSON:API 1.0 specification with FastAPI, Pydantic and data provider (SQLAlchemy)"
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -28,8 +28,8 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.100.0",
-    "orjson==3.10.15",
-    "pydantic>=2.10.4",
+    "orjson>=3.2.1",
+    "pydantic>=2.6.0",
     "uvicorn>=0.18.2",
 ]
 
@@ -37,13 +37,13 @@ dependencies = [
 all = [
     "pytest",
     "sphinx",
-    "SQLAlchemy[asyncio]>=1.4.39",
+    "SQLAlchemy[asyncio]>=2.0.26",
 ]
 docs = [
     "sphinx",
 ]
 sqlalchemy = [
-    "SQLAlchemy[asyncio]>=1.4.39",
+    "SQLAlchemy[asyncio]>=2.0.26",
 ]
 tests = [
     "pytest",
@@ -74,11 +74,11 @@ package-mode = false
 [tool.poetry.dependencies]
 python = "^3.9"
 fastapi = ">=0.100.0"
-orjson = "3.10.15"
-pydantic = ">=2.10.5"
+orjson = ">=3.2.1"
+pydantic = ">=2.6.0"
 uvicorn = ">=0.18.2"
 
-sqlalchemy = { version = ">=1.4.39", optional = true, extras = ["asyncio"] }
+sqlalchemy = { version = ">=2.0.26", optional = true, extras = ["asyncio"] }
 
 [tool.poetry.group.tests.dependencies]
 pytest = "^7.3.1"
@@ -137,15 +137,12 @@ select = [
     "TID",
     "ARG",
     "PTH",
-#    "ERA",
     "PL",
     "PLE",
     "PLR",
     "PLW",
     "RUF",
     "ASYNC",
-#    "UP",
-#    "ANN",
 ]
 
 # Exclude a variety of commonly ignored directories.

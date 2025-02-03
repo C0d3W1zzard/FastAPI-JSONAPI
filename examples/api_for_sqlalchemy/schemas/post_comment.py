@@ -29,7 +29,7 @@ class PostCommentBaseSchema(PostCommentAttributesBaseSchema):
             resource_type="post",
         ),
     ]
-    author: Annotated[
+    user: Annotated[
         UserSchema,
         RelationshipInfo(
             resource_type="user",

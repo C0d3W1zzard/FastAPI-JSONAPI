@@ -1,21 +1,15 @@
-from __future__ import annotations
-
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Optional,
-)
+from typing import Annotated, Optional
 
 from pydantic import ConfigDict
 
 from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.types_metadata import ClientCanSetId, RelationshipInfo
 
-if TYPE_CHECKING:
-    from .computer import ComputerSchema
-    from .post import PostSchema
-    from .user_bio import UserBioBaseSchema
-    from .workplace import WorkplaceSchema
+from .computer import ComputerSchema
+from .post import PostSchema
+from .post_comment import PostCommentSchema
+from .user_bio import UserBioBaseSchema
+from .workplace import WorkplaceSchema
 
 
 class UserAttributesBaseSchema(BaseModel):
@@ -32,23 +26,30 @@ class UserAttributesBaseSchema(BaseModel):
 class UserBaseSchema(UserAttributesBaseSchema):
     """User base schema."""
 
-    posts: Annotated[
-        Optional[list[PostSchema]],
-        RelationshipInfo(
-            resource_type="post",
-            many=True,
-        ),
-    ] = None
     bio: Annotated[
         Optional[UserBioBaseSchema],
         RelationshipInfo(
             resource_type="user_bio",
         ),
     ] = None
+    comments: Annotated[
+        Optional[list[PostCommentSchema]],
+        RelationshipInfo(
+            resource_type="post_comment",
+            many=True,
+        ),
+    ] = None
     computers: Annotated[
         Optional[list[ComputerSchema]],
         RelationshipInfo(
             resource_type="computer",
+            many=True,
+        ),
+    ] = None
+    posts: Annotated[
+        Optional[list[PostSchema]],
+        RelationshipInfo(
+            resource_type="post",
             many=True,
         ),
     ] = None

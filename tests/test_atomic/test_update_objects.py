@@ -1,15 +1,13 @@
 import logging
 
 import pytest
+from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette import status
 
+from examples.api_for_sqlalchemy.models import Computer, User, UserBio
 from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema, UserBioAttributesBaseSchema
 from tests.misc.utils import fake
-from tests.models import Computer, User, UserBio
-
-pytestmark = pytest.mark.asyncio
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -96,7 +94,7 @@ class TestAtomicUpdateObjects:
             "ref": {
               "type": "articles",
               "id": "13",
-              "relationship": "author"
+              "relationship": "user"
             },
             "data": {
               "type": "people",
@@ -154,7 +152,7 @@ class TestAtomicUpdateObjects:
             "ref": {
               "type": "articles",
               "id": "13",
-              "relationship": "author"
+              "relationship": "user"
             },
             "data": null
           }]
@@ -178,7 +176,7 @@ class TestAtomicUpdateObjects:
                     "ref": {
                         "type": "computer",
                         "id": f"{computer_1.id}",
-                        "relationship": "author",
+                        "relationship": "user",
                     },
                     "data": None,
                 },

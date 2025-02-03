@@ -7,17 +7,12 @@ from pydantic import BaseModel
 from pytest_asyncio import fixture
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from examples.api_for_sqlalchemy.schemas import (
-    UserAttributesBaseSchema,
-    UserSchema,
-)
+from examples.api_for_sqlalchemy.models import User
+from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema, UserSchema
 from fastapi_jsonapi.atomic import current_atomic_operation
 from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
 from fastapi_jsonapi.utils.exceptions import handle_validation_error
-from fastapi_jsonapi.views.utils import (
-    HTTPMethod,
-    HTTPMethodConfig,
-)
+from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
 from tests.common_user_api_test import (
     BaseGenericUserCreateUpdateWithBodyDependency,
     CustomNameAttributesJSONAPI,
@@ -26,10 +21,6 @@ from tests.common_user_api_test import (
 from tests.fixtures.app import build_app_custom
 from tests.fixtures.views import ArbitraryModelBase, SessionDependency, common_handler
 from tests.misc.utils import fake
-from tests.models import User
-
-pytestmark = pytest.mark.asyncio
-
 
 FIELD_CUSTOM_NAME = "custom_name"
 

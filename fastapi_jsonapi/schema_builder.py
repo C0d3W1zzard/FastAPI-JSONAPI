@@ -3,17 +3,7 @@
 import logging
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import (
-    Annotated,
-    Any,
-    Callable,
-    ClassVar,
-    Iterable,
-    Optional,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import Annotated, Any, Callable, ClassVar, Iterable, Optional, Type, TypeVar, Union
 
 from pydantic import AfterValidator, BeforeValidator, ConfigDict, create_model
 from pydantic import BaseModel as PydanticBaseModel
@@ -43,11 +33,8 @@ from fastapi_jsonapi.types_metadata import RelationshipInfo
 from fastapi_jsonapi.validation_utils import extract_validators
 
 log = logging.getLogger(__name__)
-
 JSON_API_RESPONSE_TYPE = dict[Union[int, str], dict[str, Any]]
-
 JSONAPIObjectSchemaType = TypeVar("JSONAPIObjectSchemaType", bound=PydanticBaseModel)
-
 not_passed = object()
 
 

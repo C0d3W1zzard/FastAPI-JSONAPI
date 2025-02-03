@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Optional,
-)
+from typing import TYPE_CHECKING, Annotated, Optional
 
 from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.types_metadata import RelationshipInfo

@@ -5,6 +5,7 @@ from fastapi import Depends, Query, status
 from httpx import AsyncClient
 from pytest_asyncio import fixture
 
+from examples.api_for_sqlalchemy.models import User
 from examples.api_for_sqlalchemy.schemas import (
     UserAttributesBaseSchema,
     UserInSchema,
@@ -12,16 +13,10 @@ from examples.api_for_sqlalchemy.schemas import (
     UserSchema,
 )
 from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
-from fastapi_jsonapi.views.utils import (
-    HTTPMethod,
-    HTTPMethodConfig,
-)
+from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
 from tests.fixtures.app import build_app_custom
 from tests.fixtures.views import ArbitraryModelBase, SessionDependency, common_handler
 from tests.misc.utils import fake
-from tests.models import User
-
-pytestmark = pytest.mark.asyncio
 
 
 class CustomDependencyForCreate:
@@ -118,6 +113,8 @@ class TestDependenciesResolver:
         assert response.status_code == expected_status, response.text
         response_data = response.json()
         # TODO: JSON:API exception
+        for response_ in response_data["detail"]:
+            response_.pop("url")
         assert response_data == expected_body
 
     async def test_on_create_atomic(
@@ -149,7 +146,6 @@ class TestDependenciesResolver:
                     "loc": ["query", CustomDependencyForCreate.KEY],
                     "msg": "Field required",
                     "type": "missing",
-                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -190,7 +186,6 @@ class TestDependenciesResolver:
                     "loc": ["query", CustomDependencyForUpdate.KEY],
                     "msg": "Field required",
                     "type": "missing",
-                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -225,7 +220,6 @@ class TestDependenciesResolver:
                     "loc": ["query", CustomDependencyForDelete.KEY],
                     "msg": "Field required",
                     "type": "missing",
-                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }

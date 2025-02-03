@@ -1,17 +1,14 @@
 import logging
 from typing import Awaitable, Callable
 
+from fastapi import status
 from httpx import AsyncClient
-from pytest import mark  # noqa
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.functions import count
-from starlette import status
 
+from examples.api_for_sqlalchemy.models import Computer
 from fastapi_jsonapi.atomic.schemas import AtomicOperationAction
-from tests.models import Computer
-
-pytestmark = mark.asyncio
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -78,7 +75,10 @@ class TestAtomicDeleteObjects:
         }
         response = await client.post("/operations", json=data_atomic_request)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
-        assert response.json() == {
+        response_data = response.json()
+        for response_ in response_data["detail"]:
+            response_.pop("url")
+        assert response_data == {
             "detail": [
                 {
                     "ctx": {
@@ -94,7 +94,6 @@ class TestAtomicDeleteObjects:
                     "loc": ["body", "atomic:operations", 0],
                     "msg": f"Value error, ref should be present for action {AtomicOperationAction.remove.value!r}",
                     "type": "value_error",
-                    "url": "https://errors.pydantic.dev/2.10/v/value_error",
                 },
             ],
         }

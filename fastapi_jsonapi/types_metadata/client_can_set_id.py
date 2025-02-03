@@ -1,9 +1,5 @@
 from dataclasses import dataclass
-from typing import (
-    Any,
-    Callable,
-    Optional,
-)
+from typing import Any, Callable, Optional
 
 
 @dataclass(frozen=True)

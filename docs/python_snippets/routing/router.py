@@ -1,11 +1,7 @@
 from fastapi import APIRouter, FastAPI
 
 from examples.api_for_sqlalchemy.models import User
-from examples.api_for_sqlalchemy.schemas import (
-    UserInSchema,
-    UserPatchSchema,
-    UserSchema,
-)
+from examples.api_for_sqlalchemy.schemas import UserInSchema, UserPatchSchema, UserSchema
 from fastapi_jsonapi import RoutersJSONAPI
 from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBase, ListViewBase
 

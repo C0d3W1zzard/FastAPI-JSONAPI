@@ -35,9 +35,7 @@ if TYPE_CHECKING:
     from fastapi_jsonapi.views.view_base import ViewBase
 
 JSON_API_RESPONSE_TYPE = dict[Union[int, str], dict[str, Any]]
-
 JSONAPIObjectSchemaType = TypeVar("JSONAPIObjectSchemaType", bound=PydanticBaseModel)
-
 not_passed = object()
 
 

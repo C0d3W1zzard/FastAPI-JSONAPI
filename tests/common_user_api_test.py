@@ -1,15 +1,14 @@
 from typing import Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, status
 from httpx import AsyncClient
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette import status
 
+from examples.api_for_sqlalchemy.models import User
 from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema
 from tests.misc.utils import fake
-from tests.models import User
 
 FIELD_CUSTOM_NAME = "custom_name"
 

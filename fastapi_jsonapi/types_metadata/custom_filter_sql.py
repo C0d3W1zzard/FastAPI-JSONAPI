@@ -1,10 +1,5 @@
 from dataclasses import dataclass
-from typing import (
-    Generic,
-    TypeVar,
-    Union,
-    cast,
-)
+from typing import Generic, TypeVar, Union, cast
 
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo

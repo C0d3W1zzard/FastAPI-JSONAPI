@@ -3,11 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Union
 
-from fastapi_jsonapi.schema import (
-    BaseJSONAPIItemInSchema,
-    JSONAPIResultDetailSchema,
-    JSONAPIResultListSchema,
-)
+from fastapi_jsonapi.schema import BaseJSONAPIItemInSchema, JSONAPIResultDetailSchema, JSONAPIResultListSchema
 from fastapi_jsonapi.views.utils import handle_jsonapi_fields
 from fastapi_jsonapi.views.view_base import ViewBase
 

@@ -1,37 +1,39 @@
 import sys
 from pathlib import Path
-from typing import ClassVar, Annotated
+from typing import ClassVar, Annotated, Optional
 
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI
-from fastapi_jsonapi.schema_base import BaseModel
 from pydantic import ConfigDict
-from sqlalchemy import Column, Integer, Text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from examples.api_for_sqlalchemy.models.db import DB
 from fastapi_jsonapi import RoutersJSONAPI, init
 from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
+from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
 from fastapi_jsonapi.views.view_base import ViewBase
 
 CURRENT_FILE = Path(__file__).resolve()
 CURRENT_DIR = CURRENT_FILE.parent
-PROJECT_DIR = CURRENT_DIR.parent.parent
-DB_URL = f"sqlite+aiosqlite:///{CURRENT_DIR.absolute()}/db.sqlite3"
-sys.path.append(f"{PROJECT_DIR}")
+sys.path.append(f"{CURRENT_DIR.parent.parent}")
+db = DB(
+    url=make_url(f"sqlite+aiosqlite:///{CURRENT_DIR.absolute()}/db.sqlite3"),
+)
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, autoincrement=False)
-    name = Column(Text, nullable=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[Optional[str]]
 
 
 class UserAttributesBaseSchema(BaseModel):
@@ -56,20 +58,8 @@ class UserInSchema(UserAttributesBaseSchema):
     id: Annotated[int, ClientCanSetId()]
 
 
-async def get_session():
-    sess = sessionmaker(
-        bind=create_async_engine(url=make_url(DB_URL)),
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    async with sess() as db_session:  # type: AsyncSession
-        yield db_session
-        await db_session.rollback()
-
-
 async def sqlalchemy_init() -> None:
-    engine = create_async_engine(url=make_url(DB_URL))
-    async with engine.begin() as conn:
+    async with db.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
@@ -78,7 +68,7 @@ class SessionDependency(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(db.session)
 
 
 def session_dependency_handler(view: ViewBase, dto: SessionDependency) -> dict:
@@ -145,16 +135,17 @@ def create_app() -> FastAPI:
     )
     add_routes(app)
     app.on_event("startup")(sqlalchemy_init)
+    app.on_event("shutdown")(db.dispose)
     init(app)
     return app
 
 
 app = create_app()
 
+
 if __name__ == "__main__":
-    current_file_name = CURRENT_FILE.name.replace(CURRENT_FILE.suffix, "")
     uvicorn.run(
-        f"{current_file_name}:app",
+        f"{CURRENT_FILE.name.replace(CURRENT_FILE.suffix, '')}:app",
         host="0.0.0.0",
         port=8084,
         reload=True,

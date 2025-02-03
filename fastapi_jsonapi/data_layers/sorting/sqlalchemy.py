@@ -1,36 +1,16 @@
 """Helper to create sqlalchemy sortings according to filter querystring parameter"""
 
-from typing import Any, Type, Union
+from typing import Any, Type
 
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo
 from sqlalchemy.orm import DeclarativeMeta, InstrumentedAttribute, aliased
 from sqlalchemy.sql.elements import BinaryExpression
 
-from fastapi_jsonapi.data_layers.shared import create_filters_or_sorts
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.exceptions import InvalidFilters, InvalidSort
 from fastapi_jsonapi.schema import get_model_field, get_relationship_fields_names, get_schema_from_field_annotation
 from fastapi_jsonapi.splitter import SPLIT_REL
-
-Sort = BinaryExpression
-Join = list[Any]
-
-SortAndJoins = tuple[
-    Sort,
-    list[Join],
-]
-
-
-def create_sorts(model: Type[TypeModel], filter_info: Union[list, dict], schema: Type[TypeSchema]):
-    """
-    Apply filters from filters information to base query.
-
-    :params model: the model of the node.
-    :params filter_info: current node filter information.
-    :params schema: the resource.
-    """
-    return create_filters_or_sorts(model, filter_info, Node, schema)
 
 
 class Node(object):
@@ -76,7 +56,7 @@ class Node(object):
             )
         return getattr(model_column, order)()
 
-    def resolve(self) -> SortAndJoins:
+    def resolve(self) -> tuple[BinaryExpression, list[list[Any]]]:
         """
         Create sort for a particular node of the sort tree.
         """

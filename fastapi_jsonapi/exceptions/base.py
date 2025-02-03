@@ -27,7 +27,3 @@ class ExceptionResponseSchema(BaseModel):
 
     errors: list[ExceptionSchema]
     jsonapi: dict[str, str] = Field(default={"version": "1.0"})
-
-
-class QueryError(Exception):
-    """Query build error."""

@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Optional,
-)
+from typing import TYPE_CHECKING, Annotated, Optional
 
 from pydantic import ConfigDict
 
 from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.types_metadata import RelationshipInfo
 
+from .post_comment import PostCommentSchema
+
 if TYPE_CHECKING:
-    from .post_comment import PostCommentSchema
     from .user import UserSchema
 
 

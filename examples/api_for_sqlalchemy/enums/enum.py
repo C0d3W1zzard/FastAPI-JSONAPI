@@ -10,10 +10,6 @@ TypeEnum = TypeVar("TypeEnum", bound=MixinEnum)
 
 
 class EnumColumn(types.TypeDecorator):
-    """
-    Обычный Enum из python сохраняет в БД значение, а не ключ, как делает Enum sqlalchemy
-    """
-
     impl = types.Text
     cache_ok = True
 

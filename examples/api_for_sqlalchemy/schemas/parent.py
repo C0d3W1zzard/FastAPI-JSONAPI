@@ -1,18 +1,11 @@
-from __future__ import annotations
-
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Optional,
-)
+from typing import Annotated, Optional
 
 from pydantic import ConfigDict
 
 from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.types_metadata import RelationshipInfo
 
-if TYPE_CHECKING:
-    from .parent_to_child import ParentToChildAssociationSchema
+from .parent_to_child_association import ParentToChildAssociationSchema
 
 
 class ParentAttributesSchema(BaseModel):

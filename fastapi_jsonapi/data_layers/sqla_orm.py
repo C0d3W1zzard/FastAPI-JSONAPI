@@ -18,10 +18,8 @@ from sqlalchemy.sql import Select, column, distinct
 from fastapi_jsonapi import BadRequest
 from fastapi_jsonapi.common import get_relationship_info_from_field_metadata
 from fastapi_jsonapi.data_layers.base import BaseDataLayer
-from fastapi_jsonapi.data_layers.filtering.sqlalchemy import (
-    create_filters_and_joins,
-)
-from fastapi_jsonapi.data_layers.sorting.sqlalchemy import create_sorts
+from fastapi_jsonapi.data_layers.filtering.sqlalchemy import create_filters_and_joins
+from fastapi_jsonapi.data_layers.sorting.sqlalchemy import Node
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.exceptions import (
     HTTPException,
@@ -43,9 +41,8 @@ from fastapi_jsonapi.splitter import SPLIT_REL
 from fastapi_jsonapi.types_metadata import RelationshipInfo
 
 log = logging.getLogger(__name__)
-
-ModelTypeOneOrMany = Union[TypeModel, list[TypeModel]]
 ActionTrigger = Literal["create", "update"]
+ModelTypeOneOrMany = Union[TypeModel, list[TypeModel]]
 
 
 class SqlalchemyDataLayer(BaseDataLayer):
@@ -712,12 +709,19 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param sort_info: sort information.
         :return: the sorted query.
         """
-        if sort_info:
-            sorts, joins = create_sorts(self.model, sort_info, self.schema)
-            for i_join in joins:
-                query = query.join(*i_join)
-            for i_sort in sorts:
-                query = query.order_by(i_sort)
+        if not sort_info:
+            return query
+
+        sorts = []
+        joins = []
+        for filter_or_sort in sort_info:
+            filters_or_sort, join = Node(self.model, filter_or_sort, self.schema).resolve()
+            sorts.append(filters_or_sort)
+            joins.extend(join)
+        for i_join in joins:
+            query = query.join(*i_join)
+        for i_sort in sorts:
+            query = query.order_by(i_sort)
         return query
 
     def paginate_query(self, query: Select, paginate_info: PaginationQueryStringManager) -> Select:

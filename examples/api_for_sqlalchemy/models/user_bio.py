@@ -1,26 +1,21 @@
-from sqlalchemy import Column, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship
+from __future__ import annotations
 
-from examples.api_for_sqlalchemy.extensions.sqlalchemy import Base
-from examples.api_for_sqlalchemy.utils.sqlalchemy.base_model_mixin import BaseModelMixin
+from typing import TYPE_CHECKING
+
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .base import Base
+
+if TYPE_CHECKING:
+    from .user import User
 
 
-class UserBio(Base, BaseModelMixin):
+class UserBio(Base):
     __tablename__ = "user_bio"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    birth_city: str = Column(String, nullable=False, default="", server_default="")
-    favourite_movies: str = Column(String, nullable=False, default="", server_default="")
+    birth_city: Mapped[str] = mapped_column(default="", server_default="")
+    favourite_movies: Mapped[str] = mapped_column(default="", server_default="")
 
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
-    user = relationship("User", back_populates="bio", uselist=False)
-
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}("
-            f"id={self.id},"
-            f" birth_city={self.birth_city!r},"
-            f" favourite_movies={self.favourite_movies!r},"
-            f" user_id={self.user_id}"
-            ")"
-        )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+    user: Mapped[User] = relationship(back_populates="bio")

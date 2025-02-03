@@ -1,20 +1,23 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import relationship
+from __future__ import annotations
 
-from examples.api_for_sqlalchemy.extensions.sqlalchemy import Base
-from examples.api_for_sqlalchemy.utils.sqlalchemy.base_model_mixin import BaseModelMixin
+from typing import TYPE_CHECKING
+
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .base import Base
+from .post_comment import PostComment
+
+if TYPE_CHECKING:
+    from .user import User
 
 
-class Post(Base, BaseModelMixin):
+class Post(Base):
     __tablename__ = "posts"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String, nullable=False)
-    body = Column(Text, nullable=False, default="", server_default="")
 
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=False)
-    user = relationship("User", back_populates="posts", uselist=False)
+    body: Mapped[str] = mapped_column(default="", server_default="")
+    title: Mapped[str]
 
-    comments = relationship("PostComment", back_populates="post", uselist=True)
-
-    def __repr__(self):
-        return f"{self.__class__.__name__}(id={self.id} title={self.title!r} user_id={self.user_id})"
+    comments: Mapped[list[PostComment]] = relationship(back_populates="post", cascade="delete")
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    user: Mapped[User] = relationship(back_populates="posts")

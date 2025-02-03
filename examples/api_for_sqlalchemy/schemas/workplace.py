@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-from typing import (
-    TYPE_CHECKING,
-    Annotated,
-    Optional,
-)
+from typing import TYPE_CHECKING, Annotated, Optional
 
 from pydantic import ConfigDict
 

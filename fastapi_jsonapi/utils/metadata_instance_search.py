@@ -1,10 +1,6 @@
 # noinspection PyProtectedMember
 from collections.abc import Generator
-from typing import (
-    Generic,
-    Optional,
-    TypeVar,
-)
+from typing import Generic, Optional, TypeVar
 
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo

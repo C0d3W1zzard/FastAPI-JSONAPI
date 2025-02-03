@@ -1,17 +1,12 @@
-from sqlalchemy import Column, Integer, String
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, relationship
 
-from examples.api_for_sqlalchemy.extensions.sqlalchemy import Base
-from examples.api_for_sqlalchemy.utils.sqlalchemy.base_model_mixin import BaseModelMixin
+from .base import Base
+from .parent_to_child_association import ParentToChildAssociation
 
 
-class Child(Base, BaseModelMixin):
+class Child(Base):
     __tablename__ = "right_table_children"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String, nullable=False)
+    name: Mapped[str]
 
-    parents = relationship(
-        "ParentToChildAssociation",
-        back_populates="child",
-    )
+    parents: Mapped[list[ParentToChildAssociation]] = relationship(back_populates="child", cascade="delete")

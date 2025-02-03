@@ -1,11 +1,10 @@
 from typing import Awaitable, Callable, Optional
 
-from pytest import fixture  # noqa
+import pytest
 from pytest_asyncio import fixture as async_fixture
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.misc.utils import fake
-from tests.models import (
+from examples.api_for_sqlalchemy.models import (
     Child,
     Computer,
     Parent,
@@ -16,6 +15,7 @@ from tests.models import (
     UserBio,
     Workplace,
 )
+from tests.misc.utils import fake
 
 
 def build_user(**fields) -> User:
@@ -31,7 +31,6 @@ async def create_user(async_session: AsyncSession, **fields):
     user = build_user(**fields)
     async_session.add(user)
     await async_session.commit()
-
     return user
 
 
@@ -40,8 +39,9 @@ async def user_1(async_session: AsyncSession):
     user = build_user()
     async_session.add(user)
     await async_session.commit()
-    await async_session.refresh(user)
+
     yield user
+
     await async_session.delete(user)
     await async_session.commit()
 
@@ -51,8 +51,9 @@ async def user_2(async_session: AsyncSession):
     user = build_user()
     async_session.add(user)
     await async_session.commit()
-    await async_session.refresh(user)
+
     yield user
+
     await async_session.delete(user)
     await async_session.commit()
 
@@ -62,14 +63,18 @@ async def user_3(async_session: AsyncSession):
     user = build_user()
     async_session.add(user)
     await async_session.commit()
-    await async_session.refresh(user)
+
     yield user
+
     await async_session.delete(user)
     await async_session.commit()
 
 
 async def build_user_bio(async_session: AsyncSession, user: User, **fields):
-    bio = UserBio(user=user, **fields)
+    bio = UserBio(
+        user=user,
+        **fields,
+    )
     async_session.add(bio)
     await async_session.commit()
     return bio
@@ -78,8 +83,8 @@ async def build_user_bio(async_session: AsyncSession, user: User, **fields):
 @async_fixture()
 async def user_1_bio(async_session: AsyncSession, user_1: User) -> UserBio:
     return await build_user_bio(
-        async_session,
-        user_1,
+        async_session=async_session,
+        user=user_1,
         birth_city="Moscow",
         favourite_movies="Django, Alien",
     )
@@ -88,16 +93,23 @@ async def user_1_bio(async_session: AsyncSession, user_1: User) -> UserBio:
 @async_fixture()
 async def user_2_bio(async_session: AsyncSession, user_2: User) -> UserBio:
     return await build_user_bio(
-        async_session,
-        user_2,
+        async_session=async_session,
+        user=user_2,
         birth_city="Snezhnogorsk",
         favourite_movies="A Beautiful Mind, Rocky",
     )
 
 
 async def build_post(async_session: AsyncSession, user: User, **fields) -> Post:
-    fields = {"title": fake.name(), "body": fake.sentence(), **fields}
-    post = Post(user=user, **fields)
+    fields = {
+        "title": fake.name(),
+        "body": fake.sentence(),
+        **fields,
+    }
+    post = Post(
+        user=user,
+        **fields,
+    )
     async_session.add(post)
     await async_session.commit()
     return post
@@ -115,20 +127,17 @@ async def user_1_posts(async_session: AsyncSession, user_1: User) -> list[Post]:
     ]
     async_session.add_all(posts)
     await async_session.commit()
-
-    for post in posts:
-        await async_session.refresh(post)
-
     return posts
 
 
 @async_fixture()
 async def user_1_post(async_session: AsyncSession, user_1: User):
-    post = Post(title="post_for_u1", user=user_1)
+    post = Post(
+        title="post_for_u1",
+        user=user_1,
+    )
     async_session.add(post)
     await async_session.commit()
-
-    await async_session.refresh(post)
 
     yield post
 
@@ -148,10 +157,6 @@ async def user_2_posts(async_session: AsyncSession, user_2: User) -> list[Post]:
     ]
     async_session.add_all(posts)
     await async_session.commit()
-
-    for post in posts:
-        await async_session.refresh(post)
-
     return posts
 
 
@@ -161,15 +166,12 @@ async def user_1_comments_for_u2_posts(async_session: AsyncSession, user_1, user
         PostComment(
             text=f"comment_{i}_for_post_{post.id}",
             post=post,
-            author=user_1,
+            user=user_1,
         )
         for i, post in enumerate(user_2_posts, start=1)
     ]
     async_session.add_all(post_comments)
     await async_session.commit()
-
-    for comment in post_comments:
-        await async_session.refresh(comment)
 
     yield post_comments
 
@@ -178,18 +180,18 @@ async def user_1_comments_for_u2_posts(async_session: AsyncSession, user_1, user
     await async_session.commit()
 
 
-@fixture()
+@pytest.fixture()
 def user_1_post_for_comments(user_1_posts: list[Post]) -> Post:
     return user_1_posts[0]
 
 
 @async_fixture()
 async def computer_1(async_session: AsyncSession):
-    computer = Computer(name="Halo")
-
+    computer = Computer(
+        name="Halo",
+    )
     async_session.add(computer)
     await async_session.commit()
-    await async_session.refresh(computer)
 
     yield computer
 
@@ -199,11 +201,11 @@ async def computer_1(async_session: AsyncSession):
 
 @async_fixture()
 async def computer_2(async_session: AsyncSession):
-    computer = Computer(name="Nestor")
-
+    computer = Computer(
+        name="Nestor",
+    )
     async_session.add(computer)
     await async_session.commit()
-    await async_session.refresh(computer)
 
     yield computer
 
@@ -217,7 +219,6 @@ async def computer_factory(async_session: AsyncSession) -> Callable[[Optional[st
         computer = Computer(name=name or fake.word())
         async_session.add(computer)
         await async_session.commit()
-        await async_session.refresh(computer)
         return computer
 
     return factory
@@ -229,9 +230,12 @@ async def build_post_comment(
     post: Post,
     **fields,
 ) -> PostComment:
-    fields = {"text": fake.sentence(), **fields}
+    fields = {
+        "text": fake.sentence(),
+        **fields,
+    }
     post_comment = PostComment(
-        author=user,
+        user=user,
         post=post,
         **fields,
     )
@@ -242,16 +246,13 @@ async def build_post_comment(
 
 @async_fixture()
 async def user_2_comment_for_one_u1_post(async_session: AsyncSession, user_2, user_1_post_for_comments):
-    post = user_1_post_for_comments
     post_comment = PostComment(
-        text=f"one_comment_from_u2_for_post_{post.id}",
-        post=post,
-        author=user_2,
+        text=f"one_comment_from_u2_for_post_{user_1_post_for_comments.id}",
+        post=user_1_post_for_comments,
+        user=user_2,
     )
     async_session.add(post_comment)
     await async_session.commit()
-
-    await async_session.refresh(post_comment)
 
     yield post_comment
 
@@ -267,8 +268,6 @@ async def parent_1(async_session: AsyncSession):
     async_session.add(parent)
     await async_session.commit()
 
-    await async_session.refresh(parent)
-
     yield parent
 
     await async_session.delete(parent)
@@ -282,8 +281,6 @@ async def parent_2(async_session: AsyncSession):
     )
     async_session.add(parent)
     await async_session.commit()
-
-    await async_session.refresh(parent)
 
     yield parent
 
@@ -299,8 +296,6 @@ async def parent_3(async_session: AsyncSession):
     async_session.add(parent)
     await async_session.commit()
 
-    await async_session.refresh(parent)
-
     yield parent
 
     await async_session.delete(parent)
@@ -314,8 +309,6 @@ async def child_1(async_session: AsyncSession):
     )
     async_session.add(child)
     await async_session.commit()
-
-    await async_session.refresh(child)
 
     yield child
 
@@ -331,8 +324,6 @@ async def child_2(async_session: AsyncSession):
     async_session.add(child)
     await async_session.commit()
 
-    await async_session.refresh(child)
-
     yield child
 
     await async_session.delete(child)
@@ -347,8 +338,6 @@ async def child_3(async_session: AsyncSession):
     async_session.add(child)
     await async_session.commit()
 
-    await async_session.refresh(child)
-
     yield child
 
     await async_session.delete(child)
@@ -362,8 +351,6 @@ async def child_4(async_session: AsyncSession):
     )
     async_session.add(child)
     await async_session.commit()
-
-    await async_session.refresh(child)
 
     yield child
 
@@ -385,8 +372,6 @@ async def p1_c1_association(
     async_session.add(assoc)
     await async_session.commit()
 
-    await async_session.refresh(assoc)
-
     yield assoc
 
     await async_session.delete(assoc)
@@ -406,8 +391,6 @@ async def p2_c1_association(
     )
     async_session.add(assoc)
     await async_session.commit()
-
-    await async_session.refresh(assoc)
 
     yield assoc
 
@@ -429,8 +412,6 @@ async def p1_c2_association(
     async_session.add(assoc)
     await async_session.commit()
 
-    await async_session.refresh(assoc)
-
     yield assoc
 
     await async_session.delete(assoc)
@@ -450,8 +431,6 @@ async def p2_c2_association(
     )
     async_session.add(assoc)
     await async_session.commit()
-
-    await async_session.refresh(assoc)
 
     yield assoc
 
@@ -473,8 +452,6 @@ async def p2_c3_association(
     async_session.add(assoc)
     await async_session.commit()
 
-    await async_session.refresh(assoc)
-
     yield assoc
 
     await async_session.delete(assoc)
@@ -484,9 +461,7 @@ async def p2_c3_association(
 async def build_workplace(async_session: AsyncSession, **fields):
     workplace = Workplace(**fields)
     async_session.add(workplace)
-
     await async_session.commit()
-
     return workplace
 
 

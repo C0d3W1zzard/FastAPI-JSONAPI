@@ -4,20 +4,11 @@ import logging
 from collections import defaultdict
 from contextvars import ContextVar
 from functools import wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Awaitable,
-    Callable,
-    Optional,
-    Type,
-    TypedDict,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Type, TypedDict, Union
 
 from fastapi import HTTPException, status
+from fastapi.requests import Request
 from pydantic import BaseModel, ValidationError
-from starlette.requests import Request
 
 from fastapi_jsonapi import RoutersJSONAPI
 from fastapi_jsonapi.atomic.prepared_atomic_operation import LocalIdsType, OperationBase
@@ -29,7 +20,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 AtomicResponseDict = TypedDict("AtomicResponseDict", {"atomic:results": list[Any]})
-
 current_atomic_operation: ContextVar[OperationBase] = ContextVar("current_atomic_operation")
 
 

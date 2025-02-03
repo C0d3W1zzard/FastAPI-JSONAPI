@@ -2,22 +2,19 @@ import logging
 from typing import Awaitable, Callable, Optional
 
 import pytest
+from fastapi import status
 from httpx import AsyncClient
-from pytest import mark  # noqa
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.functions import count
-from starlette import status
 
+from examples.api_for_sqlalchemy.models import Computer, User, UserBio
 from examples.api_for_sqlalchemy.schemas import (
     ComputerAttributesBaseSchema,
     UserAttributesBaseSchema,
     UserBioAttributesBaseSchema,
 )
 from tests.misc.utils import fake
-from tests.models import Computer, User, UserBio
-
-pytestmark = mark.asyncio
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -47,7 +44,6 @@ class TestAtomicMixedActions:
         response = await client.post("/operations", json=atomic_request_data)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
-
         assert response_data == {
             "detail": [
                 {
@@ -58,7 +54,6 @@ class TestAtomicMixedActions:
                     "loc": ["body", "atomic:operations", 0, "op"],
                     "msg": f"Input should be {allowed_atomic_actions_as_string}",
                     "type": "enum",
-                    "url": "https://errors.pydantic.dev/2.10/v/enum",
                 },
             ],
         }
@@ -586,7 +581,7 @@ class TestAtomicMixedActions:
             "ref": {
               "type": "articles",
               "id": "13",
-              "relationship": "author"
+              "relationship": "user"
             },
             "data": {
               "type": "people",

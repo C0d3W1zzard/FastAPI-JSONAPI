@@ -1,18 +1,10 @@
 from __future__ import annotations
 
 import logging
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    TypeVar,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, TypeVar, Union
 
 from fastapi_jsonapi import BadRequest
-from fastapi_jsonapi.schema import (
-    BaseJSONAPIItemInSchema,
-    JSONAPIResultDetailSchema,
-)
+from fastapi_jsonapi.schema import BaseJSONAPIItemInSchema, JSONAPIResultDetailSchema
 from fastapi_jsonapi.views.utils import handle_jsonapi_fields
 from fastapi_jsonapi.views.view_base import ViewBase
 

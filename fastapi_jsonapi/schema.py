@@ -8,21 +8,10 @@ from __future__ import annotations
 
 from inspect import isclass
 from types import GenericAlias
-from typing import (
-    TYPE_CHECKING,
-    Optional,
-    Sequence,
-    Type,
-    Union,
-    get_args,
-)
+from typing import TYPE_CHECKING, Optional, Sequence, Type, Union, get_args
 
 from fastapi import FastAPI
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-)
+from pydantic import BaseModel, ConfigDict, Field
 
 # noinspection PyProtectedMember
 from pydantic._internal._typing_extra import is_none_type

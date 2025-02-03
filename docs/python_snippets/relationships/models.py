@@ -1,37 +1,36 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
-from sqlalchemy.orm import relationship
+from __future__ import annotations
 
-from examples.api_for_sqlalchemy.extensions.sqlalchemy import Base
-from examples.api_for_sqlalchemy.utils.sqlalchemy.base_model_mixin import BaseModelMixin
+from typing import Optional
+
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import relationship, Mapped, mapped_column
+
+from examples.api_for_sqlalchemy.models.base import Base
 
 
-class User(Base, BaseModelMixin):
+class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String)
+    name: Mapped[str]
 
-    posts = relationship("Post", back_populates="user", uselist=True)
-    bio = relationship("UserBio", back_populates="user", uselist=False)
-    computers = relationship("Computer", back_populates="user", uselist=True)
+    bio: Mapped[UserBio] = relationship(back_populates="user")
+    computers: Mapped[list[Computer]] = relationship(back_populates="user")
 
 
-class Computer(Base, BaseModelMixin):
+class Computer(Base):
     __tablename__ = "computers"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String, nullable=False)
+    name: Mapped[str]
 
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    user = relationship("User", back_populates="computers")
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    user: Mapped[User] = relationship(back_populates="computers")
 
 
-class UserBio(Base, BaseModelMixin):
+class UserBio(Base):
     __tablename__ = "user_bio"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    birth_city = Column(String, nullable=False, default="", server_default="")
-    favourite_movies = Column(String, nullable=False, default="", server_default="")
+    birth_city: Mapped[str] = mapped_column(default="", server_default="")
+    favourite_movies: Mapped[str] = mapped_column(default="", server_default="")
 
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
-    user = relationship("User", back_populates="bio", uselist=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True)
+    user: Mapped[User] = relationship(back_populates="bio")

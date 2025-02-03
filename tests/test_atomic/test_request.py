@@ -54,7 +54,7 @@ class TestAtomicOperationRequest:
                         "ref": {
                             "type": "articles",
                             "id": "13",
-                            "relationship": "author",
+                            "relationship": "user",
                         },
                         "data": {
                             "type": "people",
@@ -71,7 +71,7 @@ class TestAtomicOperationRequest:
                         "ref": {
                             "type": "articles",
                             "id": "13",
-                            "relationship": "author",
+                            "relationship": "user",
                         },
                         "data": None,
                     },

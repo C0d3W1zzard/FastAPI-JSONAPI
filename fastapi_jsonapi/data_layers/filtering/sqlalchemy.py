@@ -1,13 +1,7 @@
 """Helper to create sqlalchemy filters according to filter querystring parameter"""
 
 import logging
-from typing import (
-    Any,
-    Optional,
-    Type,
-    Union,
-    get_args,
-)
+from typing import Any, Optional, Type, Union, get_args
 
 from pydantic import BaseModel, ConfigDict, PydanticSchemaGenerationError, TypeAdapter
 
@@ -37,9 +31,7 @@ from fastapi_jsonapi.types_metadata import CustomFilterSQL
 log = logging.getLogger(__name__)
 
 RELATIONSHIP_SPLITTER = "."
-
 cast_failed = object()
-
 RelationshipPath = str
 
 

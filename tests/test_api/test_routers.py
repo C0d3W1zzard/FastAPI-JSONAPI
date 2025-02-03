@@ -3,11 +3,11 @@ from typing import ClassVar, Optional
 from fastapi import APIRouter, Depends, FastAPI, Header, Path, status
 from httpx import AsyncClient
 from pydantic import BaseModel, ConfigDict
-from pytest import mark  # noqa
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing_extensions import Annotated
 
+from examples.api_for_sqlalchemy.models import User
 from examples.api_for_sqlalchemy.schemas import (
     UserAttributesBaseSchema,
     UserInSchema,
@@ -17,17 +17,11 @@ from examples.api_for_sqlalchemy.schemas import (
 from fastapi_jsonapi import RoutersJSONAPI, init
 from fastapi_jsonapi.exceptions import Forbidden, InternalServerError
 from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
-from fastapi_jsonapi.views.utils import (
-    HTTPMethod,
-    HTTPMethodConfig,
-)
+from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
 from fastapi_jsonapi.views.view_base import ViewBase
 from tests.fixtures.db_connection import async_session_dependency
 from tests.fixtures.views import SessionDependency
 from tests.misc.utils import fake
-from tests.models import User
-
-pytestmark = mark.asyncio
 
 
 def build_app(detail_view, resource_type: str) -> FastAPI:

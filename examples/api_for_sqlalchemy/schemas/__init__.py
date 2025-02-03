@@ -1,6 +1,3 @@
-from .alpha import AlphaSchema
-from .beta import BetaSchema
-from .cascade_case import CascadeCaseSchema
 from .child import (
     ChildAttributesSchema,
     ChildInSchema,
@@ -13,19 +10,13 @@ from .computer import (
     ComputerPatchSchema,
     ComputerSchema,
 )
-from .custom_uuid import (
-    CustomUUIDItemAttributesSchema,
-    CustomUUIDItemSchema,
-)
-from .delta import DeltaSchema
-from .gamma import GammaSchema
 from .parent import (
     ParentAttributesSchema,
     ParentInSchema,
     ParentPatchSchema,
     ParentSchema,
 )
-from .parent_to_child import (
+from .parent_to_child_association import (
     ParentToChildAssociationAttributesSchema,
     ParentToChildAssociationSchema,
 )
@@ -38,13 +29,6 @@ from .post import (
 from .post_comment import (
     PostCommentAttributesBaseSchema,
     PostCommentSchema,
-)
-from .self_relationship import SelfRelationshipAttributesSchema
-from .task import (
-    TaskBaseSchema,
-    TaskInSchema,
-    TaskPatchSchema,
-    TaskSchema,
 )
 from .user import (
     CustomUserAttributesSchema,
@@ -60,12 +44,13 @@ from .user_bio import (
     UserBioInSchema,
     UserBioPatchSchema,
 )
-from .workplace import WorkplaceSchema
+from .workplace import (
+    WorkplaceInSchema,
+    WorkplacePatchSchema,
+    WorkplaceSchema,
+)
 
 __all__ = (
-    "AlphaSchema",
-    "BetaSchema",
-    "CascadeCaseSchema",
     "ChildAttributesSchema",
     "ChildInSchema",
     "ChildPatchSchema",
@@ -74,10 +59,7 @@ __all__ = (
     "ComputerInSchema",
     "ComputerPatchSchema",
     "ComputerSchema",
-    "CustomUUIDItemAttributesSchema",
-    "CustomUUIDItemSchema",
-    "DeltaSchema",
-    "GammaSchema",
+    "CustomUserAttributesSchema",
     "ParentAttributesSchema",
     "ParentInSchema",
     "ParentPatchSchema",
@@ -90,20 +72,16 @@ __all__ = (
     "PostSchema",
     "PostCommentAttributesBaseSchema",
     "PostCommentSchema",
-    "SelfRelationshipAttributesSchema",
-    "TaskBaseSchema",
-    "TaskInSchema",
-    "TaskPatchSchema",
-    "TaskSchema",
-    "CustomUserAttributesSchema",
     "UserAttributesBaseSchema",
     "UserInSchema",
     "UserInSchemaAllowIdOnPost",
     "UserPatchSchema",
     "UserSchema",
     "UserBioAttributesBaseSchema",
-    "UserBioInSchema",
     "UserBioBaseSchema",
+    "UserBioInSchema",
     "UserBioPatchSchema",
+    "WorkplaceInSchema",
+    "WorkplacePatchSchema",
     "WorkplaceSchema",
 )

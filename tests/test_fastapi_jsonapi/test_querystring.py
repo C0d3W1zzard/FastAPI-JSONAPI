@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 import orjson as json
 import pytest
 from fastapi import status
-from starlette.datastructures import QueryParams
+from fastapi.datastructures import QueryParams
 
 from fastapi_jsonapi.exceptions import InvalidFilters
 from fastapi_jsonapi.exceptions.json_api import BadRequest

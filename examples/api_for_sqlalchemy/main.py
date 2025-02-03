@@ -9,26 +9,18 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
 
-from examples.api_for_sqlalchemy import config
-from examples.api_for_sqlalchemy.extensions.sqlalchemy import Base
+from examples.api_for_sqlalchemy.api.views_base import db
+from examples.api_for_sqlalchemy.models.base import Base
 from examples.api_for_sqlalchemy.urls import add_routes
 from fastapi_jsonapi import init
 
-CURRENT_FILE = Path(__file__).resolve()
-CURRENT_DIR = CURRENT_FILE.parent
-PROJECT_DIR = CURRENT_DIR.parent.parent
-
-sys.path.append(f"{PROJECT_DIR}")
+CURRENT_DIR = Path(__file__).resolve().parent
+sys.path.append(f"{CURRENT_DIR.parent.parent}")
 
 
 async def sqlalchemy_init() -> None:
-    engine = create_async_engine(url=make_url(config.SQLA_URI), echo=config.SQLA_ECHO)
-    async with engine.begin() as conn:
-        # We don't want to drop tables on each app restart!
-        # await conn.run_sync(Base.metadata.drop_all)
+    async with db.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
@@ -47,6 +39,7 @@ def create_app() -> FastAPI:
     app.config = {"MAX_INCLUDE_DEPTH": 5}
     add_routes(app)
     app.on_event("startup")(sqlalchemy_init)
+    app.on_event("shutdown")(db.dispose)
     init(app)
     return app
 

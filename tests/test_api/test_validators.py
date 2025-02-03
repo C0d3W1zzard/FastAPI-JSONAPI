@@ -5,23 +5,18 @@ import pytest
 from fastapi import FastAPI, status
 from httpx import AsyncClient
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
-from pytest import mark, param  # noqa: PT013
 from pytest_asyncio import fixture
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from examples.api_for_sqlalchemy.schemas import TaskBaseSchema
+from examples.api_for_sqlalchemy.models import User
 from fastapi_jsonapi import RoutersJSONAPI
 from fastapi_jsonapi.schema_builder import SchemaBuilder
 from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.validation_utils import extract_validators
 from tests.fixtures.app import build_app_custom
+from tests.fixtures.models import Task
+from tests.fixtures.schemas import TaskBaseSchema
 from tests.misc.utils import fake
-from tests.models import (
-    Task,
-    User,
-)
-
-pytestmark = pytest.mark.asyncio
 
 
 @fixture()
@@ -439,11 +434,11 @@ class TestValidators:
             expected_detail="Check validator",
         )
 
-    @mark.parametrize(
+    @pytest.mark.parametrize(
         "inherit",
         [
-            param(True, id="inherited_true"),
-            param(False, id="inherited_false"),
+            pytest.param(True, id="inherited_true"),
+            pytest.param(False, id="inherited_false"),
         ],
     )
     async def test_field_validator_can_change_value(self, inherit: bool):
@@ -488,13 +483,13 @@ class TestValidators:
             "meta": None,
         }
 
-    @mark.parametrize(
+    @pytest.mark.parametrize(
         ("name", "expected_detail"),
         [
-            param("check_pre_1", "Raised 1 pre validator", id="check_1_pre_validator"),
-            param("check_pre_2", "Raised 2 pre validator", id="check_2_pre_validator"),
-            param("check_post_1", "Raised 1 post validator", id="check_1_post_validator"),
-            param("check_post_2", "Raised 2 post validator", id="check_2_post_validator"),
+            pytest.param("check_pre_1", "Raised 1 pre validator", id="check_1_pre_validator"),
+            pytest.param("check_pre_2", "Raised 2 pre validator", id="check_2_pre_validator"),
+            pytest.param("check_post_1", "Raised 1 post validator", id="check_1_post_validator"),
+            pytest.param("check_post_2", "Raised 2 post validator", id="check_2_post_validator"),
         ],
     )
     async def test_model_validator(self, name: str, expected_detail: str):
@@ -554,11 +549,11 @@ class TestValidators:
             expected_detail=expected_detail,
         )
 
-    @mark.parametrize(
+    @pytest.mark.parametrize(
         "inherit",
         [
-            param(True, id="inherited_true"),
-            param(False, id="inherited_false"),
+            pytest.param(True, id="inherited_true"),
+            pytest.param(False, id="inherited_false"),
         ],
     )
     async def test_model_validator_can_change_value(self, inherit: bool):
@@ -606,13 +601,13 @@ class TestValidators:
             "meta": None,
         }
 
-    @mark.parametrize(
+    @pytest.mark.parametrize(
         ("name", "expected_detail"),
         [
-            param("check_pre_1", "check_pre_1", id="check_1_pre_validator"),
-            param("check_pre_2", "check_pre_2", id="check_2_pre_validator"),
-            param("check_post_1", "check_post_1", id="check_1_post_validator"),
-            param("check_post_2", "check_post_2", id="check_2_post_validator"),
+            pytest.param("check_pre_1", "check_pre_1", id="check_1_pre_validator"),
+            pytest.param("check_pre_2", "check_pre_2", id="check_2_pre_validator"),
+            pytest.param("check_post_1", "check_post_1", id="check_1_post_validator"),
+            pytest.param("check_post_2", "check_post_2", id="check_2_post_validator"),
         ],
     )
     async def test_model_validator_inheritance(self, name: str, expected_detail: str):
@@ -717,13 +712,13 @@ class TestValidators:
 
 
 class TestValidationUtils:
-    @mark.parametrize(
+    @pytest.mark.parametrize(
         ("include", "exclude", "expected"),
         [
-            param({"item_1"}, None, {"item_1_validator"}, id="include"),
-            param(None, {"item_1"}, {"item_2_validator"}, id="exclude"),
-            param(None, None, {"item_1_validator", "item_2_validator"}, id="empty_params"),
-            param({"item_1", "item_2"}, {"item_2"}, {"item_1_validator"}, id="intersection"),
+            pytest.param({"item_1"}, None, {"item_1_validator"}, id="include"),
+            pytest.param(None, {"item_1"}, {"item_2_validator"}, id="exclude"),
+            pytest.param(None, None, {"item_1_validator", "item_2_validator"}, id="empty_params"),
+            pytest.param({"item_1", "item_2"}, {"item_2"}, {"item_1_validator"}, id="intersection"),
         ],
     )
     def test_extract_field_validators_args(

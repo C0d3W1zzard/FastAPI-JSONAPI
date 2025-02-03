@@ -28,9 +28,9 @@ class TestAtomicResultResponse:
                     {
                         "data": {
                             "links": {
-                                "self": "https://example.com/authors/acb2ebd6-ed30-4877-80ce-52a14d77d470",
+                                "self": "https://example.com/user/acb2ebd6-ed30-4877-80ce-52a14d77d470",
                             },
-                            "type": "authors",
+                            "type": "users",
                             "id": "acb2ebd6-ed30-4877-80ce-52a14d77d470",
                             "attributes": {"name": "dgeb"},
                         },
@@ -46,10 +46,10 @@ class TestAtomicResultResponse:
                                 "title": "JSON API paints my bikeshed!",
                             },
                             "relationships": {
-                                "author": {
+                                "user": {
                                     "links": {
-                                        "self": "https://example.com/articles/bb3ad581-806f-4237-b748-f2ea0261845c/relationships/author",
-                                        "related": "https://example.com/articles/bb3ad581-806f-4237-b748-f2ea0261845c/author",
+                                        "self": "https://example.com/articles/bb3ad581-806f-4237-b748-f2ea0261845c/relationships/user",
+                                        "related": "https://example.com/articles/bb3ad581-806f-4237-b748-f2ea0261845c/user",
                                     },
                                 },
                             },

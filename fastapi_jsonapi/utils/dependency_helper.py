@@ -1,18 +1,9 @@
 import inspect
-from typing import (
-    Any,
-    Awaitable,
-    Callable,
-    TypeVar,
-    Union,
-)
+from typing import Any, Awaitable, Callable, TypeVar, Union
 
 from fastapi import Request
 from fastapi.dependencies.models import Dependant
-from fastapi.dependencies.utils import (
-    get_dependant,
-    solve_dependencies,
-)
+from fastapi.dependencies.utils import get_dependant, solve_dependencies
 from fastapi.exceptions import RequestValidationError
 
 ReturnType = TypeVar("ReturnType")

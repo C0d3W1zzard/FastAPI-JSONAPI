@@ -10,20 +10,17 @@ from uuid import UUID, uuid4
 import orjson as json
 import pytest
 from fastapi import FastAPI, status
+from fastapi.datastructures import QueryParams
 from httpx import AsyncClient
 from pydantic import BaseModel
-from pytest import fixture, mark, param, raises  # noqa PT013
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.datastructures import QueryParams
 
+from examples.api_for_sqlalchemy.models import Computer, Post, PostComment, User, UserBio, Workplace
 from examples.api_for_sqlalchemy.schemas import (
-    CascadeCaseSchema,
     CustomUserAttributesSchema,
-    CustomUUIDItemAttributesSchema,
     PostAttributesBaseSchema,
     PostCommentAttributesBaseSchema,
-    SelfRelationshipAttributesSchema,
     UserAttributesBaseSchema,
     UserBioAttributesBaseSchema,
     UserInSchemaAllowIdOnPost,
@@ -35,31 +32,19 @@ from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.types_metadata.custom_filter_sql import sql_filter_lower_equals
 from tests.common import is_postgres_tests
 from tests.fixtures.app import build_alphabet_app, build_app_custom
-from tests.fixtures.entities import (
-    build_post,
-    build_post_comment,
-    build_workplace,
-    create_user,
-)
-from tests.misc.utils import fake
-from tests.models import (
+from tests.fixtures.entities import build_post, build_post_comment, build_workplace, create_user
+from tests.fixtures.models import (
     Alpha,
     Beta,
     CascadeCase,
-    Computer,
     ContainsTimestamp,
     CustomUUIDItem,
     Delta,
     Gamma,
-    Post,
-    PostComment,
     SelfRelationship,
-    User,
-    UserBio,
-    Workplace,
 )
-
-pytestmark = mark.asyncio
+from tests.fixtures.schemas import CascadeCaseSchema, CustomUUIDItemAttributesSchema, SelfRelationshipAttributesSchema
+from tests.misc.utils import fake
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -158,16 +143,16 @@ class TestGetUsersList:
         assert "data" in response_data
         assert response_data["data"] == expected_data
 
-    @mark.parametrize(
+    @pytest.mark.parametrize(
         ("fields", "expected_include"),
         [
-            param(
+            pytest.param(
                 [
                     ("fields[user]", "name,age"),
                 ],
                 {"name", "age"},
             ),
-            param(
+            pytest.param(
                 [
                     ("fields[user]", "name,age"),
                     ("fields[user]", "email"),
@@ -485,7 +470,7 @@ class TestCreatePostAndComments:
         user_1_post: Post,
     ):
         url = app.url_path_for("get_post_comment_list")
-        url = f"{url}?include=author,post,post.user"
+        url = f"{url}?include=user,post,post.user"
         comment_attributes = PostCommentAttributesBaseSchema(
             text=fake.sentence(),
         ).model_dump()
@@ -499,7 +484,7 @@ class TestCreatePostAndComments:
                             "id": f"{user_1_post.id}",
                         },
                     },
-                    "author": {
+                    "user": {
                         "data": {
                             "type": "user",
                             "id": f"{user_2.id}",
@@ -524,7 +509,7 @@ class TestCreatePostAndComments:
                         "id": f"{user_1_post.id}",
                     },
                 },
-                "author": {
+                "user": {
                     "data": {
                         "type": "user",
                         "id": f"{user_2.id}",
@@ -587,13 +572,15 @@ class TestCreatePostAndComments:
                             "id": f"{user_1_post.id}",
                         },
                     },
-                    # don"t pass "author"
+                    # don"t pass "user"
                 },
             },
         }
         response = await client.post(url, json=comment_create)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
+        for response_ in response_data["detail"]:
+            response_.pop("url")
         assert response_data == {
             "detail": [
                 {
@@ -605,10 +592,9 @@ class TestCreatePostAndComments:
                             },
                         },
                     },
-                    "loc": ["body", "data", "relationships", "author"],
+                    "loc": ["body", "data", "relationships", "user"],
                     "msg": "Field required",
                     "type": "missing",
-                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -627,13 +613,15 @@ class TestCreatePostAndComments:
                 "attributes": comment_attributes,
                 "relationships": {
                     # don"t pass "post"
-                    # don"t pass "author"
+                    # don"t pass "user"
                 },
             },
         }
         response = await client.post(url, json=comment_create)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
+        for response_ in response_data["detail"]:
+            response_.pop("url")
         assert response_data == {
             "detail": [
                 {
@@ -641,14 +629,12 @@ class TestCreatePostAndComments:
                     "loc": ["body", "data", "relationships", "post"],
                     "msg": "Field required",
                     "type": "missing",
-                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
                 {
                     "input": {},
-                    "loc": ["body", "data", "relationships", "author"],
+                    "loc": ["body", "data", "relationships", "user"],
                     "msg": "Field required",
                     "type": "missing",
-                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -671,6 +657,8 @@ class TestCreatePostAndComments:
         response = await client.post(url, json=comment_create)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
+        for response_ in response_data["detail"]:
+            response_.pop("url")
         assert response_data == {
             "detail": [
                 {
@@ -680,7 +668,6 @@ class TestCreatePostAndComments:
                     "loc": ["body", "data", "relationships"],
                     "msg": "Field required",
                     "type": "missing",
-                    "url": "https://errors.pydantic.dev/2.10/v/missing",
                 },
             ],
         }
@@ -705,10 +692,10 @@ async def test_get_users_with_all_inner_relations(
     - bio
     - posts
     - posts.comments
-    - posts.comments.author
+    - posts.comments.user
     """
     url = app.url_path_for("get_user_list")
-    url = f"{url}?include=bio,posts,posts.comments,posts.comments.author"
+    url = f"{url}?include=bio,posts,posts.comments,posts.comments.user"
     response = await client.get(url)
     assert response.status_code == status.HTTP_200_OK
     response_data = response.json()
@@ -747,7 +734,7 @@ async def test_get_users_with_all_inner_relations(
         }
 
     # ! assert posts have expected post comments
-    for posts, comments, comment_author in [
+    for posts, comments, comment_user in [
         ([user_1_post_for_comments], [user_2_comment_for_one_u1_post], user_2),
         (user_2_posts, user_1_comments_for_u2_posts, user_1),
     ]:
@@ -765,11 +752,11 @@ async def test_get_users_with_all_inner_relations(
                 }
 
                 comment_data = included_data[("post_comment", f"{comment.id}")]
-                assert comment_data["relationships"]["author"]["data"] == {
-                    "id": f"{comment_author.id}",
+                assert comment_data["relationships"]["user"]["data"] == {
+                    "id": f"{comment_user.id}",
                     "type": "user",
                 }
-                assert ("user", f"{comment_author.id}") in included_data
+                assert ("user", f"{comment_user.id}") in included_data
 
 
 async def test_many_to_many_load_inner_includes_to_parents(
@@ -859,7 +846,7 @@ class TestGetUserDetail:
 
 
 class TestUserWithPostsWithInnerIncludes:
-    @mark.parametrize(
+    @pytest.mark.parametrize(
         (
             "include",
             "expected_relationships_inner_relations",
@@ -882,8 +869,8 @@ class TestUserWithPostsWithInnerIncludes:
                 False,
             ),
             (
-                ["posts", "posts.user", "posts.comments", "posts.comments.author"],
-                {"post": ["user", "comments"], "post_comment": ["author"], "user": []},
+                ["posts", "posts.user", "posts.comments", "posts.comments.user"],
+                {"post": ["user", "comments"], "post_comment": ["user"], "user": []},
                 True,
             ),
         ],
@@ -908,7 +895,7 @@ class TestUserWithPostsWithInnerIncludes:
         returns posts with both `user` and `comments`
         """
         assert user_1_posts
-        assert user_2_comment_for_one_u1_post.author_id == user_2.id
+        assert user_2_comment_for_one_u1_post.user_id == user_2.id
         include_param = ",".join(include)
         resource_type = "user"
         url = app.url_path_for(f"get_{resource_type}_list")
@@ -1019,7 +1006,7 @@ class TestUserWithPostsWithInnerIncludes:
                         user_2_comment_for_one_u1_post,
                     ).model_dump(),
                     "relationships": {
-                        "author": {
+                        "user": {
                             "data": {
                                 "id": f"{user_2.id}",
                                 "type": "user",
@@ -1765,7 +1752,7 @@ class TestPatchObjects:
             "meta": None,
         }
 
-    @mark.parametrize("check_type", ["ok", "fail"])
+    @pytest.mark.parametrize("check_type", ["ok", "fail"])
     async def test_update_to_many_relationships(self, async_session: AsyncSession, check_type: Literal["ok", "fail"]):
         resource_type = "cascade_case"
         with suppress(KeyError):
@@ -2562,7 +2549,10 @@ class TestFilters:
             "meta": {"count": 0, "totalPages": 1},
         }
 
-    @mark.parametrize("field_name", [param(name, id=name) for name in ["id", "name", "age", "email"]])
+    @pytest.mark.parametrize(
+        "field_name",
+        [pytest.param(name, id=name) for name in ["id", "name", "age", "email"]],
+    )
     async def test_field_filters(
         self,
         app: FastAPI,
@@ -2643,11 +2633,11 @@ class TestFilters:
             "meta": {"count": 0, "totalPages": 1},
         }
 
-    @mark.parametrize(
+    @pytest.mark.parametrize(
         ("filter_dict", "expected_email_is_null"),
         [
-            param([{"name": "email", "op": "is_", "val": None}], True),
-            param([{"name": "email", "op": "isnot", "val": None}], False),
+            pytest.param([{"name": "email", "op": "is_", "val": None}], True),
+            pytest.param([{"name": "email", "op": "isnot", "val": None}], False),
         ],
     )
     async def test_filter_by_null(
@@ -3081,12 +3071,12 @@ class TestFilters:
         comment_1 = PostComment(
             text=text,
             post_id=user_1_post.id,
-            author_id=user_1.id,
+            user_id=user_1.id,
         )
         comment_2 = PostComment(
             text=text,
             post_id=user_1_post.id,
-            author_id=user_1.id,
+            user_id=user_1.id,
         )
         async_session.add_all([comment_1, comment_2])
         await async_session.commit()
@@ -3269,12 +3259,12 @@ class TestFilters:
         comment_1 = PostComment(
             text=fake.sentence(),
             post_id=user_1_post.id,
-            author_id=user_1.id,
+            user_id=user_1.id,
         )
         comment_2 = PostComment(
             text=fake.sentence(),
             post_id=user_1_post.id,
-            author_id=user_1.id,
+            user_id=user_1.id,
         )
         assert comment_1.text != comment_2.text
         async_session.add_all([comment_1, comment_2])
@@ -3370,14 +3360,15 @@ DESCENDING = "-"
 
 
 class TestSorts:
-    def get_reverse(self, order: str) -> bool:
+    @classmethod
+    def get_reverse(cls, order: str) -> bool:
         return order is DESCENDING
 
-    @mark.parametrize(
+    @pytest.mark.parametrize(
         "order",
         [
-            param(ASCENDING, id="ascending"),
-            param(DESCENDING, id="descending"),
+            pytest.param(ASCENDING, id="ascending"),
+            pytest.param(DESCENDING, id="descending"),
         ],
     )
     async def test_sort(

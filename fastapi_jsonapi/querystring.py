@@ -4,24 +4,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from functools import cached_property
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    Type,
-)
+from typing import TYPE_CHECKING, Any, Optional, Type
 from urllib.parse import unquote
 
 import orjson as json
-from fastapi import (
-    FastAPI,
-    Request,
-)
-from pydantic import (
-    BaseModel,
-    Field,
-)
-from starlette.datastructures import QueryParams
+from fastapi import FastAPI, Request
+from fastapi.datastructures import QueryParams
+from pydantic import BaseModel, Field
 
 from fastapi_jsonapi.api import RoutersJSONAPI
 from fastapi_jsonapi.exceptions import (
@@ -32,10 +21,7 @@ from fastapi_jsonapi.exceptions import (
     InvalidSort,
     InvalidType,
 )
-from fastapi_jsonapi.schema import (
-    get_model_field,
-    get_relationship_fields_names,
-)
+from fastapi_jsonapi.schema import get_model_field, get_relationship_fields_names
 from fastapi_jsonapi.splitter import SPLIT_REL
 
 if TYPE_CHECKING:

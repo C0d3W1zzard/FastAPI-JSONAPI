@@ -3,11 +3,7 @@ from typing import Optional
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo
 
-from fastapi_jsonapi.types_metadata import (
-    ClientCanSetId,
-    CustomFilterSQL,
-    RelationshipInfo,
-)
+from fastapi_jsonapi.types_metadata import ClientCanSetId, CustomFilterSQL, RelationshipInfo
 from fastapi_jsonapi.utils.metadata_instance_search import MetadataInstanceSearch
 
 search_client_can_set_id = MetadataInstanceSearch[ClientCanSetId](ClientCanSetId)

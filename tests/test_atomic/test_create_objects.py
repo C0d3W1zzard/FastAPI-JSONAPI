@@ -2,15 +2,15 @@ import logging
 from typing import Callable
 
 import pytest
+from fastapi import status
 from httpx import AsyncClient
-from pytest import mark  # noqa
 from sqlalchemy import and_, or_, select
 from sqlalchemy.engine import Result
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.functions import count
-from starlette import status
 
+from examples.api_for_sqlalchemy.models import Child, Parent, ParentToChildAssociation, User, UserBio
 from examples.api_for_sqlalchemy.schemas import (
     ChildAttributesSchema,
     ComputerAttributesBaseSchema,
@@ -20,12 +20,8 @@ from examples.api_for_sqlalchemy.schemas import (
     UserBioAttributesBaseSchema,
 )
 from tests.misc.utils import fake
-from tests.models import Child, Parent, ParentToChildAssociation, User, UserBio
 
 COLUMN_CHARACTERS_LIMIT = 50
-
-pytestmark = mark.asyncio
-
 logging.basicConfig(level=logging.DEBUG)
 
 
@@ -40,7 +36,10 @@ class TestAtomicCreateObjects:
         }
         response = await client.post("/operations", json=data_atomic_request)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
-        assert response.json() == {
+        response_data = response.json()
+        for response_ in response_data["detail"]:
+            response_.pop("url")
+        assert response_data == {
             "detail": [
                 {
                     "ctx": {
@@ -52,7 +51,6 @@ class TestAtomicCreateObjects:
                     "loc": ["body", "atomic:operations"],
                     "msg": "List should have at least 1 item after validation, not 0",
                     "type": "too_short",
-                    "url": "https://errors.pydantic.dev/2.10/v/too_short",
                 },
             ],
         }
@@ -904,7 +902,10 @@ class TestAtomicCreateObjects:
         response = await client.post("/operations", json=data_atomic_request)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         # TODO: json:api exception
-        assert response.json() == {
+        response_data = response.json()
+        for response_ in response_data["detail"]["errors"]:
+            response_.pop("url")
+        assert response_data == {
             "detail": {
                 "data": {
                     "attributes": {},
@@ -919,7 +920,6 @@ class TestAtomicCreateObjects:
                         "loc": ["data", "attributes", "name"],
                         "msg": "Field required",
                         "type": "missing",
-                        "url": "https://errors.pydantic.dev/2.10/v/missing",
                     },
                 ],
                 "message": f"Validation error on operation {action_add['op']}",

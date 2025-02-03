@@ -2,15 +2,10 @@ from typing import ClassVar
 
 from fastapi import Depends
 from pydantic import BaseModel, ConfigDict
-from pytest import fixture  # noqa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi_jsonapi.misc.sqla.generics.base import (
-    DetailViewBaseGeneric as DetailViewBaseGenericHelper,
-)
-from fastapi_jsonapi.misc.sqla.generics.base import (
-    ListViewBaseGeneric as ListViewBaseGenericHelper,
-)
+from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric as DetailViewBaseGenericHelper
+from fastapi_jsonapi.misc.sqla.generics.base import ListViewBaseGeneric as ListViewBaseGenericHelper
 from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
 from fastapi_jsonapi.views.view_base import ViewBase
 from tests.fixtures.db_connection import async_session_dependency
