@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Annotated, Optional, Type
+from typing import Annotated, Generator, Optional, Type
 
 import pytest
 from fastapi import FastAPI, status
@@ -30,7 +30,7 @@ async def task_with_none_ids(
     return task
 
 
-@pytest.fixture()
+@pytest.fixture
 def resource_type():
     return "task"
 
@@ -141,7 +141,7 @@ class TestValidators:
     resource_type = "validator"
 
     @fixture(autouse=True)
-    def _refresh_caches(self) -> None:
+    def _refresh_caches(self) -> Generator:
         object_schemas_cache = deepcopy(SchemaBuilder.object_schemas_cache)
         relationship_schema_cache = deepcopy(SchemaBuilder.relationship_schema_cache)
         base_jsonapi_object_schemas_cache = deepcopy(SchemaBuilder.base_jsonapi_object_schemas_cache)

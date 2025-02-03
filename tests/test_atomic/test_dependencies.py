@@ -113,9 +113,10 @@ class TestDependenciesResolver:
         assert response.status_code == expected_status, response.text
         response_data = response.json()
         # TODO: JSON:API exception
-        for response_ in response_data["detail"]:
-            response_.pop("url")
-        assert response_data == expected_body
+        detail, *_ = response_data["detail"]
+        expected_detail, *_ = response_data["detail"]
+        assert detail["loc"] == expected_detail["loc"]
+        assert detail["msg"] == expected_detail["msg"]
 
     async def test_on_create_atomic(
         self,

@@ -5,7 +5,7 @@ import pytest
 from fastapi_jsonapi.atomic.schemas import AtomicOperationAction
 
 
-@pytest.fixture()
+@pytest.fixture
 def allowed_atomic_actions_list() -> list[str]:
     return [op.value for op in AtomicOperationAction]
 
@@ -21,6 +21,6 @@ def options_as_pydantic_choices_string(options: Sequence[str]) -> str:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def allowed_atomic_actions_as_string(allowed_atomic_actions_list) -> str:
     return options_as_pydantic_choices_string(allowed_atomic_actions_list)

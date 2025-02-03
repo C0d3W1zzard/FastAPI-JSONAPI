@@ -1,6 +1,6 @@
 __all__ = (
-    "Field",
     "BaseModel",
+    "Field",
     "registry",
 )
 

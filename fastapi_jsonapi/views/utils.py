@@ -84,7 +84,7 @@ def _calculate_exclude_fields(
     query_params: QueryStringManager,
     jsonapi: RoutersJSONAPI,
 ) -> dict:
-    included = "included" in response.model_fields and response.included or []
+    included = ("included" in response.model_fields and response.included) or []
     is_list_response = isinstance(response, JSONAPIResultListSchema)
 
     exclude_params: dict[str, Any] = {}

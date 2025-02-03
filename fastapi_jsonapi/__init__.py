@@ -13,10 +13,10 @@ from fastapi_jsonapi.querystring import QueryStringManager
 __version__ = Path(__file__).parent.joinpath("VERSION").read_text().strip()
 
 __all__ = [
-    "init",
     "BadRequest",
     "QueryStringManager",
     "RoutersJSONAPI",
+    "init",
 ]
 
 

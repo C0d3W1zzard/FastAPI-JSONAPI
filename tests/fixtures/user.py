@@ -4,7 +4,7 @@ from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema
 from tests.misc.utils import fake
 
 
-@pytest.fixture()
+@pytest.fixture
 def user_attributes_factory():
     def factory():
         user_attributes = UserAttributesBaseSchema(
@@ -17,6 +17,6 @@ def user_attributes_factory():
     return factory
 
 
-@pytest.fixture()
+@pytest.fixture
 def user_attributes(user_attributes_factory):
     return user_attributes_factory()

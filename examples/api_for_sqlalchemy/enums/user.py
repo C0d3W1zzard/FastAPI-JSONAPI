@@ -1,4 +1,4 @@
-from fastapi_jsonapi.data_layers.fields.enum import Enum
+from fastapi_jsonapi.data_layers.fields.enums import Enum
 
 
 class UserStatusEnum(str, Enum):

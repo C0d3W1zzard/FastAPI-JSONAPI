@@ -2,7 +2,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from examples.api_for_sqlalchemy.enums.enum import EnumColumn
+from examples.api_for_sqlalchemy.enums.enums import EnumColumn
 from examples.api_for_sqlalchemy.enums.user import UserStatusEnum
 
 from .base import Base
@@ -19,7 +19,10 @@ class User(Base):
     age: Mapped[Optional[int]]
     email: Mapped[Optional[str]]
     name: Mapped[Optional[str]] = mapped_column(unique=True)
-    status: Mapped[UserStatusEnum] = mapped_column(EnumColumn(UserStatusEnum), default=UserStatusEnum.active)
+    status: Mapped[UserStatusEnum] = mapped_column(
+        EnumColumn(UserStatusEnum),
+        default=UserStatusEnum.active,
+    )
 
     bio: Mapped[UserBio] = relationship(back_populates="user", cascade="delete")
     comments: Mapped[list[PostComment]] = relationship(back_populates="user", cascade="delete")

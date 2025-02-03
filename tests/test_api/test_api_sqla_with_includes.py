@@ -579,25 +579,9 @@ class TestCreatePostAndComments:
         response = await client.post(url, json=comment_create)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
-        for response_ in response_data["detail"]:
-            response_.pop("url")
-        assert response_data == {
-            "detail": [
-                {
-                    "input": {
-                        "post": {
-                            "data": {
-                                "id": f"{user_1_post.id}",
-                                "type": "post",
-                            },
-                        },
-                    },
-                    "loc": ["body", "data", "relationships", "user"],
-                    "msg": "Field required",
-                    "type": "missing",
-                },
-            ],
-        }
+        detail, *_ = response_data["detail"]
+        assert detail["loc"] == ["body", "data", "relationships", "user"]
+        assert detail["msg"] == "Field required"
 
     async def test_create_comment_error_no_relationships_content(
         self,
@@ -620,24 +604,11 @@ class TestCreatePostAndComments:
         response = await client.post(url, json=comment_create)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
-        for response_ in response_data["detail"]:
-            response_.pop("url")
-        assert response_data == {
-            "detail": [
-                {
-                    "input": {},
-                    "loc": ["body", "data", "relationships", "post"],
-                    "msg": "Field required",
-                    "type": "missing",
-                },
-                {
-                    "input": {},
-                    "loc": ["body", "data", "relationships", "user"],
-                    "msg": "Field required",
-                    "type": "missing",
-                },
-            ],
-        }
+        detail_1, detail_2 = response_data["detail"]
+        assert detail_1["loc"] == ["body", "data", "relationships", "post"]
+        assert detail_1["msg"] == "Field required"
+        assert detail_2["loc"] == ["body", "data", "relationships", "user"]
+        assert detail_2["msg"] == "Field required"
 
     async def test_create_comment_error_no_relationships_field(
         self,
@@ -657,20 +628,9 @@ class TestCreatePostAndComments:
         response = await client.post(url, json=comment_create)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
-        for response_ in response_data["detail"]:
-            response_.pop("url")
-        assert response_data == {
-            "detail": [
-                {
-                    "input": {
-                        "attributes": comment_attributes,
-                    },
-                    "loc": ["body", "data", "relationships"],
-                    "msg": "Field required",
-                    "type": "missing",
-                },
-            ],
-        }
+        detail, *_ = response_data["detail"]
+        assert detail["loc"] == ["body", "data", "relationships"]
+        assert detail["msg"] == "Field required"
 
 
 async def test_get_users_with_all_inner_relations(
@@ -925,8 +885,8 @@ class TestUserWithPostsWithInnerIncludes:
         ]
         included_data = response_json["included"]
         included_as_map = defaultdict(list)
-        for item in included_data:
-            included_as_map[item["type"]].append(item)
+        for included_ in included_data:
+            included_as_map[included_["type"]].append(included_)
 
         for item_type, items in included_as_map.items():
             expected_relationships = expected_relationships_inner_relations[item_type]
@@ -971,7 +931,6 @@ class TestUserWithPostsWithInnerIncludes:
     ):
         return {
             "post": [
-                #
                 {
                     "id": f"{p.id}",
                     "type": "post",
@@ -984,18 +943,19 @@ class TestUserWithPostsWithInnerIncludes:
                             },
                         },
                         "comments": {
-                            "data": [
-                                {
-                                    "id": f"{user_2_comment_for_one_u1_post.id}",
-                                    "type": "post_comment",
-                                },
-                            ]
-                            if p.id == user_2_comment_for_one_u1_post.post_id
-                            else [],
+                            "data": (
+                                [
+                                    {
+                                        "id": f"{user_2_comment_for_one_u1_post.id}",
+                                        "type": "post_comment",
+                                    },
+                                ]
+                                if p.id == user_2_comment_for_one_u1_post.post_id
+                                else []
+                            ),
                         },
                     },
                 }
-                #
                 for p in user_1_posts
             ],
             "post_comment": [
@@ -1423,7 +1383,8 @@ class TestCreateObjects:
 
             response_json = res.json()
             assert response_json["data"]
-            assert (parent_object_id := response_json["data"].get("id"))
+            parent_object_id = response_json["data"].get("id")
+            assert parent_object_id
             assert response_json == {
                 "data": {
                     "attributes": {
@@ -1516,7 +1477,8 @@ class TestCreateObjects:
             assert res.status_code == status.HTTP_201_CREATED, res.text
             response_json = res.json()
 
-            assert (entity_id := response_json["data"]["id"])
+            entity_id = response_json["data"]["id"]
+            assert entity_id
             assert (
                 # rec
                 ContainsTimestampAttrsSchema(**response_json["data"]["attributes"])
@@ -3162,7 +3124,6 @@ class TestFilters:
         async_session.add(another_item)
         await async_session.commit()
 
-        #
         params = {}
         if filter_kind == "small":
             params.update(

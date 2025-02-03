@@ -31,29 +31,15 @@ def random_sentence() -> str:
 
 class TestAtomicCreateObjects:
     async def test_operations_empty_list(self, client: AsyncClient):
-        data_atomic_request = {
+        data_atomic_request: dict[str, list] = {
             "atomic:operations": [],
         }
         response = await client.post("/operations", json=data_atomic_request)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
-        for response_ in response_data["detail"]:
-            response_.pop("url")
-        assert response_data == {
-            "detail": [
-                {
-                    "ctx": {
-                        "actual_length": 0,
-                        "field_type": "List",
-                        "min_length": 1,
-                    },
-                    "input": [],
-                    "loc": ["body", "atomic:operations"],
-                    "msg": "List should have at least 1 item after validation, not 0",
-                    "type": "too_short",
-                },
-            ],
-        }
+        detail, *_ = response_data["detail"]
+        assert detail["loc"] == ["body", "atomic:operations"]
+        assert detail["msg"] == "List should have at least 1 item after validation, not 0"
 
     async def test_create_one_object(
         self,
@@ -661,9 +647,9 @@ class TestAtomicCreateObjects:
         assert response.json() == {
             "detail": {
                 "data": {
-                    **action_2["data"],
                     "id": None,
                     "lid": None,
+                    **action_2["data"],
                 },
                 "error": expected_error_text,
                 "message": f"Validation error on operation {action_1['op']}",

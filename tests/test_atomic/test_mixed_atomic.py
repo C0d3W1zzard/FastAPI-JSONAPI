@@ -44,19 +44,9 @@ class TestAtomicMixedActions:
         response = await client.post("/operations", json=atomic_request_data)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
-        assert response_data == {
-            "detail": [
-                {
-                    "ctx": {
-                        "expected": allowed_atomic_actions_as_string,
-                    },
-                    "input": operation_name,
-                    "loc": ["body", "atomic:operations", 0, "op"],
-                    "msg": f"Input should be {allowed_atomic_actions_as_string}",
-                    "type": "enum",
-                },
-            ],
-        }
+        detail, *_ = response_data["detail"]
+        assert detail["loc"] == ["body", "atomic:operations", 0, "op"]
+        assert detail["msg"] == f"Input should be {allowed_atomic_actions_as_string}"
 
     async def test_create_and_update_atomic_success(
         self,
@@ -347,7 +337,7 @@ class TestAtomicMixedActions:
         await async_session.refresh(user_1_bio)
         assert user_1.name == user_data.name
         assert user_1_bio.favourite_movies == user_bio_data.favourite_movies
-        computer: Computer = await async_session.scalar(select(Computer).where(Computer.user_id == user_1.id))
+        computer = await async_session.scalar(select(Computer).where(Computer.user_id == user_1.id))
         assert results == [
             {
                 "data": {

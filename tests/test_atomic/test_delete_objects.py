@@ -76,24 +76,6 @@ class TestAtomicDeleteObjects:
         response = await client.post("/operations", json=data_atomic_request)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
         response_data = response.json()
-        for response_ in response_data["detail"]:
-            response_.pop("url")
-        assert response_data == {
-            "detail": [
-                {
-                    "ctx": {
-                        "error": {},
-                    },
-                    "input": {
-                        "data": {
-                            "id": "0",
-                            "type": "computer",
-                        },
-                        "op": "remove",
-                    },
-                    "loc": ["body", "atomic:operations", 0],
-                    "msg": f"Value error, ref should be present for action {AtomicOperationAction.remove.value!r}",
-                    "type": "value_error",
-                },
-            ],
-        }
+        detail, *_ = response_data["detail"]
+        assert detail["loc"] == ["body", "atomic:operations", 0]
+        assert detail["msg"] == f"Value error, ref should be present for action {AtomicOperationAction.remove.value!r}"

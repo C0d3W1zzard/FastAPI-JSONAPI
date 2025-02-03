@@ -43,8 +43,8 @@ def create_filter_parameter(
 
 
 def create_additional_query_params(schema: type[BaseModel]) -> tuple[list[Parameter], list[Parameter]]:
-    filter_params = []
-    include_params = []
+    filter_params: list[Parameter] = []
+    include_params: list[Parameter] = []
     if not schema:
         return filter_params, include_params
 
