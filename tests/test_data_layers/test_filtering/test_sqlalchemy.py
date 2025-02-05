@@ -5,7 +5,7 @@ import pytest
 from fastapi import status
 from pydantic import BaseModel, ConfigDict
 
-from fastapi_jsonapi.data_layers.filtering.sqlalchemy import build_filter_expression
+from fastapi_jsonapi.data_layers.sqla.query_building import build_filter_expression
 from fastapi_jsonapi.exceptions import InvalidType
 
 

@@ -21,7 +21,6 @@ from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
 from fastapi_jsonapi.views.view_base import ViewBase
 from tests.fixtures.db_connection import async_session_dependency
 from tests.fixtures.views import SessionDependency
-from tests.misc.utils import fake
 
 
 def build_app(detail_view, resource_type: str) -> FastAPI:
@@ -147,7 +146,7 @@ async def test_dependencies_as_permissions(user_1: User):
             ),
         }
 
-    resource_type = fake.word()
+    resource_type = "test_dependencies_as_permissions"
     app = build_app(DependencyInjectionDetailView, resource_type=resource_type)
     async with AsyncClient(app=app, base_url="http://test") as client:
         res = await client.get(f"/users/{user_1.id}", headers={"X-AUTH": "not_admin"})

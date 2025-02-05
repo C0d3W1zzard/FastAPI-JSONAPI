@@ -18,8 +18,11 @@ from sqlalchemy.sql import Select, column, distinct
 from fastapi_jsonapi import BadRequest
 from fastapi_jsonapi.common import get_relationship_info_from_field_metadata
 from fastapi_jsonapi.data_layers.base import BaseDataLayer
-from fastapi_jsonapi.data_layers.filtering.sqlalchemy import create_filters_and_joins
-from fastapi_jsonapi.data_layers.sorting.sqlalchemy import Node
+from fastapi_jsonapi.data_layers.sqla.query_building import (
+    build_filter_expressions,
+    build_sort_expressions,
+    prepare_relationships_info,
+)
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.exceptions import (
     HTTPException,
@@ -353,13 +356,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
         await self.before_get_collection(qs, view_kwargs)
 
-        query = self.query(view_kwargs)
-
-        if filters_qs := qs.filters:
-            query = self.filter_query(query, filters_qs)
-
-        if sorts := qs.get_sorts(schema=self.schema):
-            query = self.sort_query(query, sorts)
+        query = self.apply_filters_and_sorts(self.query(view_kwargs), qs)
 
         objects_count = await self.get_collection_count(query, qs, view_kwargs)
 
@@ -679,49 +676,31 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
         return list(related_objects)
 
-    def filter_query(self, query: Select, filter_info: Optional[list]) -> Select:
-        """
-        Filter query according to jsonapi 1.0.
+    def apply_filters_and_sorts(self, query: Select, qs: QueryStringManager):
+        filters, sorts = qs.filters, qs.sorts
+        relationships_info = prepare_relationships_info(self.model, self.schema, filters, sorts)
 
-        :param query: sqlalchemy query to sort.
-        :param filter_info: filter information.
-        :return: the sorted query.
-        """
-        if filter_info:
-            filters, joins = create_filters_and_joins(
-                model=self.model,
-                filter_info=filter_info,
-                schema=self.schema,
+        for info in relationships_info.values():
+            query = query.join(info.aliased_model, info.join_column)
+
+        if filters:
+            filter_expressions = build_filter_expressions(
+                filter_item={"and": filters},
+                target_model=self.model,
+                target_schema=self.schema,
+                relationships_info=relationships_info,
             )
+            query = query.where(filter_expressions)
 
-            for i_join in joins:
-                query = query.join(*i_join)
+        if sorts:
+            sort_expressions = build_sort_expressions(
+                sort_items=sorts,
+                target_model=self.model,
+                target_schema=self.schema,
+                relationships_info=relationships_info,
+            )
+            query = query.order_by(*sort_expressions)
 
-            query = query.where(filters)
-
-        return query
-
-    def sort_query(self, query: Select, sort_info: list) -> Select:
-        """
-        Sort query according to jsonapi 1.0.
-
-        :param query: sqlalchemy query to sort.
-        :param sort_info: sort information.
-        :return: the sorted query.
-        """
-        if not sort_info:
-            return query
-
-        sorts = []
-        joins = []
-        for filter_or_sort in sort_info:
-            filters_or_sort, join = Node(self.model, filter_or_sort, self.schema).resolve()
-            sorts.append(filters_or_sort)
-            joins.extend(join)
-        for i_join in joins:
-            query = query.join(*i_join)
-        for i_sort in sorts:
-            query = query.order_by(i_sort)
         return query
 
     def paginate_query(self, query: Select, paginate_info: PaginationQueryStringManager) -> Select:

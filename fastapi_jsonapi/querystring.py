@@ -1,10 +1,8 @@
 """Helper to deal with querystring parameters according to jsonapi specification."""
 
-from __future__ import annotations
-
 from collections import defaultdict
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Optional, Type
+from typing import Any, Optional, Type
 from urllib.parse import unquote
 
 import orjson as json
@@ -18,14 +16,9 @@ from fastapi_jsonapi.exceptions import (
     InvalidField,
     InvalidFilters,
     InvalidInclude,
-    InvalidSort,
     InvalidType,
 )
-from fastapi_jsonapi.schema import get_model_field, get_relationship_fields_names
 from fastapi_jsonapi.splitter import SPLIT_REL
-
-if TYPE_CHECKING:
-    from fastapi_jsonapi.data_typing import TypeSchema
 
 
 class PaginationQueryStringManager(BaseModel):
@@ -160,9 +153,32 @@ class QueryStringManager:
                 raise InvalidFilters(msg)
 
             results.extend(loaded_filters)
+
         if filter_key_values := self._get_unique_key_values("filter["):
             results.extend(self._simple_filters(filter_key_values))
+
         return results
+
+    @property
+    def sorts(self) -> list[dict]:
+        if (sort_q := self.qs.get("sort")) is None:
+            return []
+
+        sorting_results = []
+        for sort_field in sort_q.split(","):
+            field, order = sort_field, "asc"
+
+            if sort_field.startswith("-"):
+                field = sort_field.removeprefix("-")
+                order = "desc"
+
+            relationship_path = None
+            if SPLIT_REL in field:
+                relationship_path = SPLIT_REL.join(field.split(SPLIT_REL)[:-1])
+
+            sorting_results.append({"field": field, "order": order, "rel_path": relationship_path})
+
+        return sorting_results
 
     @cached_property
     def pagination(self) -> PaginationQueryStringManager:
@@ -239,40 +255,6 @@ class QueryStringManager:
     @classmethod
     def _get_schema(cls, resource_type: str) -> Type[BaseModel]:
         return RoutersJSONAPI.all_jsonapi_routers[resource_type].schema
-
-    def get_sorts(self, schema: Type[TypeSchema]) -> list[dict[str, str]]:
-        """
-        Return fields to sort by including sort name for SQLAlchemy and row sort parameter for other ORMs.
-
-        :return: a list of sorting information
-
-        Example of return value::
-
-            [
-                {'field': 'created_at', 'order': 'desc'},
-            ]
-
-        :raises InvalidSort: if sort field wrong.
-        """
-        if (sort_q := self.qs.get("sort")) is None:
-            return []
-
-        field_names = get_relationship_fields_names(schema)
-
-        sorting_results = []
-        for sort_field in sort_q.split(","):
-            field = sort_field.replace("-", "")
-            if SPLIT_REL not in field:
-                if field not in schema.model_fields:
-                    msg = f"{schema.__name__} has no attribute {field}"
-                    raise InvalidSort(msg)
-                if field in field_names:
-                    msg = f"You can't sort on {field} because it is a relationship field"
-                    raise InvalidSort(msg)
-                field = get_model_field(schema, field)
-            order = "desc" if sort_field.startswith("-") else "asc"
-            sorting_results.append({"field": field, "order": order})
-        return sorting_results
 
     @property
     def include(self) -> list[str]:

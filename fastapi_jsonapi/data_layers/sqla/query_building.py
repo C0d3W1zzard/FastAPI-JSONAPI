@@ -14,11 +14,11 @@ from sqlalchemy import and_, false, not_, or_
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.util import AliasedClass
-from sqlalchemy.sql.elements import BinaryExpression, BooleanClauseList
+from sqlalchemy.sql.elements import BinaryExpression
 
 from fastapi_jsonapi.common import search_custom_filter_sql
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
-from fastapi_jsonapi.exceptions import InvalidFilters, InvalidType
+from fastapi_jsonapi.exceptions import InvalidField, InvalidFilters, InvalidType
 from fastapi_jsonapi.exceptions.json_api import HTTPException
 from fastapi_jsonapi.schema import (
     JSONAPISchemaIntrospectionError,
@@ -26,7 +26,7 @@ from fastapi_jsonapi.schema import (
     get_relationship_fields_names,
     get_schema_from_field_annotation,
 )
-from fastapi_jsonapi.types_metadata import CustomFilterSQL
+from fastapi_jsonapi.types_metadata import CustomFilterSQL, CustomSortSQL
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ cast_failed = object()
 RelationshipPath = str
 
 
-class RelationshipFilteringInfo(BaseModel):
+class RelationshipInfo(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
@@ -125,7 +125,7 @@ def build_filter_expression(
     return getattr(model_column, operator)(casted_value)
 
 
-def is_terminal_node(filter_item: dict) -> bool:
+def is_filtering_terminal_node(filter_item: dict) -> bool:
     """
     If node shape is:
 
@@ -143,26 +143,24 @@ def is_relationship_filter(name: str) -> bool:
     return RELATIONSHIP_SPLITTER in name
 
 
-def gather_relationship_paths(filter_item: Union[dict, list]) -> set[str]:
+def gather_relationship_paths(item: Union[dict, list[dict]]) -> set[str]:
     """
     Extracts relationship paths from query filter
     """
     names = set()
 
-    if isinstance(filter_item, list):
-        for sub_item in filter_item:
+    if isinstance(item, list):
+        for sub_item in item:
             names.update(gather_relationship_paths(sub_item))
 
-    elif is_terminal_node(filter_item):
-        name = filter_item["name"]
-
-        if RELATIONSHIP_SPLITTER not in name:
+    elif field_name := (item.get("name") or item.get("field")):
+        if RELATIONSHIP_SPLITTER not in field_name:
             return set()
 
-        return {RELATIONSHIP_SPLITTER.join(name.split(RELATIONSHIP_SPLITTER)[:-1])}
+        return {RELATIONSHIP_SPLITTER.join(field_name.split(RELATIONSHIP_SPLITTER)[:-1])}
 
     else:
-        for sub_item in filter_item.values():
+        for sub_item in item.values():
             names.update(gather_relationship_paths(sub_item))
 
     return names
@@ -210,10 +208,10 @@ def gather_relationships_info(
     model: Type[TypeModel],
     schema: Type[TypeSchema],
     relationship_path: list[str],
-    collected_info: dict[RelationshipPath, RelationshipFilteringInfo],
+    collected_info: dict[RelationshipPath, RelationshipInfo],
     target_relationship_idx: int = 0,
     prev_aliased_model: Optional[Any] = None,
-) -> dict[RelationshipPath, RelationshipFilteringInfo]:
+) -> dict[RelationshipPath, RelationshipInfo]:
     is_last_relationship = target_relationship_idx == len(relationship_path) - 1
     target_relationship_path = RELATIONSHIP_SPLITTER.join(
         relationship_path[: target_relationship_idx + 1],
@@ -223,7 +221,7 @@ def gather_relationships_info(
     relationships_names = get_relationship_fields_names(schema)
     if target_relationship_name not in relationships_names:
         msg = f"There is no relationship {target_relationship_name!r} defined in schema {schema.__name__!r}"
-        raise InvalidFilters(msg)
+        raise InvalidField(msg)
 
     target_schema = get_schema_from_field_annotation(schema.model_fields[target_relationship_name])
     target_model = getattr(model, target_relationship_name).property.mapper.class_
@@ -242,7 +240,7 @@ def gather_relationships_info(
         )
 
     aliased_model = aliased(target_model)
-    collected_info[target_relationship_path] = RelationshipFilteringInfo(
+    collected_info[target_relationship_path] = RelationshipInfo(
         target_schema=target_schema,
         model=target_model,
         aliased_model=aliased_model,
@@ -266,7 +264,7 @@ def gather_relationships(
     entrypoint_model: Type[TypeModel],
     schema: Type[TypeSchema],
     relationship_paths: set[str],
-) -> dict[RelationshipPath, RelationshipFilteringInfo]:
+) -> dict[RelationshipPath, RelationshipInfo]:
     collected_info = {}
     for relationship_path in sorted(relationship_paths):
         gather_relationships_info(
@@ -283,9 +281,11 @@ def prepare_relationships_info(
     model: Type[TypeModel],
     schema: Type[TypeSchema],
     filter_info: list,
-):
+    sorting_info: list,
+) -> dict[RelationshipPath, RelationshipInfo]:
     # TODO: do this on application startup or use the cache
     relationship_paths = gather_relationship_paths(filter_info)
+    relationship_paths.update(gather_relationship_paths(sorting_info))
     return gather_relationships(
         entrypoint_model=model,
         schema=schema,
@@ -297,14 +297,12 @@ def build_terminal_node_filter_expressions(
     filter_item: dict,
     target_schema: Type[TypeSchema],
     target_model: Type[TypeModel],
-    relationships_info: dict[RelationshipPath, RelationshipFilteringInfo],
+    relationships_info: dict[RelationshipPath, RelationshipInfo],
 ):
     name: str = filter_item["name"]
     if is_relationship_filter(name):
         *relationship_path, field_name = name.split(RELATIONSHIP_SPLITTER)
-        relationship_info: RelationshipFilteringInfo = relationships_info[
-            RELATIONSHIP_SPLITTER.join(relationship_path)
-        ]
+        relationship_info: RelationshipInfo = relationships_info[RELATIONSHIP_SPLITTER.join(relationship_path)]
         model_column = get_model_column(
             model=relationship_info.aliased_model,
             schema=relationship_info.target_schema,
@@ -351,15 +349,15 @@ def build_filter_expressions(
     filter_item: dict,
     target_schema: Type[TypeSchema],
     target_model: Type[TypeModel],
-    relationships_info: dict[RelationshipPath, RelationshipFilteringInfo],
-) -> Union[BinaryExpression, BooleanClauseList]:
+    relationships_info: dict[RelationshipPath, RelationshipInfo],
+) -> BinaryExpression:
     """
     Return sqla expressions.
 
     Builds sqlalchemy expression which can be use
     in where condition: query(Model).where(build_filter_expressions(...))
     """
-    if is_terminal_node(filter_item):
+    if is_filtering_terminal_node(filter_item):
         return build_terminal_node_filter_expressions(
             filter_item=filter_item,
             target_schema=target_schema,
@@ -414,21 +412,33 @@ def build_filter_expressions(
     )
 
 
-def create_filters_and_joins(
-    filter_info: list,
-    model: Type[TypeModel],
-    schema: Type[TypeSchema],
+def build_sort_expressions(
+    sort_items: list[dict],
+    target_schema: Type[TypeSchema],
+    target_model: Type[TypeModel],
+    relationships_info: dict[RelationshipPath, RelationshipInfo],
 ):
-    relationships_info = prepare_relationships_info(
-        model=model,
-        schema=schema,
-        filter_info=filter_info,
-    )
-    expressions = build_filter_expressions(
-        filter_item={"and": filter_info},
-        target_model=model,
-        target_schema=schema,
-        relationships_info=relationships_info,
-    )
-    joins = [(info.aliased_model, info.join_column) for info in relationships_info.values()]
-    return expressions, joins
+    expressions = []
+    for item in sort_items:
+        schema = target_schema
+        model, field_name = target_model, item["field"]
+
+        if relationship_path := item.get("rel_path"):
+            field_name = item["field"].split(RELATIONSHIP_SPLITTER)[-1]
+            model = relationships_info[relationship_path].aliased_model
+            schema = relationships_info[relationship_path].target_schema
+
+        schema_field = schema.model_fields[field_name]
+        custom_sort_sql: Optional[CustomSortSQL] = None
+        for sort_sql in search_custom_filter_sql.iterate(field=schema_field):
+            if sort_sql.op == sort_sql:
+                custom_sort_sql = sort_sql
+                break
+
+        join_column = getattr(model, field_name)
+        if custom_sort_sql is not None:
+            join_column = custom_sort_sql.get_expression(schema_field, join_column)
+
+        expressions.append(getattr(join_column, item["order"])())
+
+    return expressions

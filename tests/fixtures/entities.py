@@ -27,11 +27,41 @@ def build_user(**fields) -> User:
     return User(**(fake_fields | fields))
 
 
-async def create_user(async_session: AsyncSession, **fields):
+def build_computer(**fields) -> Computer:
+    fields = {
+        "name": fake.name(),
+        **fields,
+    }
+    return Computer(**fields)
+
+
+def build_user_bio(user: User, **fields) -> UserBio:
+    return UserBio(user=user, **fields)
+
+
+async def create_user(async_session: AsyncSession, **fields) -> User:
     user = build_user(**fields)
     async_session.add(user)
     await async_session.commit()
     return user
+
+
+async def create_user_bio(async_session: AsyncSession, user: User, **fields) -> UserBio:
+    fields = {
+        "user": user,
+        **fields,
+    }
+    user_bio = build_user_bio(**fields)
+    async_session.add(user_bio)
+    await async_session.commit()
+    return user_bio
+
+
+async def create_computer(async_session: AsyncSession, **fields) -> Computer:
+    computer = build_computer(**fields)
+    async_session.add(computer)
+    await async_session.commit()
+    return computer
 
 
 @async_fixture()
@@ -70,19 +100,9 @@ async def user_3(async_session: AsyncSession):
     await async_session.commit()
 
 
-async def build_user_bio(async_session: AsyncSession, user: User, **fields):
-    bio = UserBio(
-        user=user,
-        **fields,
-    )
-    async_session.add(bio)
-    await async_session.commit()
-    return bio
-
-
 @async_fixture()
 async def user_1_bio(async_session: AsyncSession, user_1: User) -> UserBio:
-    return await build_user_bio(
+    return await create_user_bio(
         async_session=async_session,
         user=user_1,
         birth_city="Moscow",
@@ -92,7 +112,7 @@ async def user_1_bio(async_session: AsyncSession, user_1: User) -> UserBio:
 
 @async_fixture()
 async def user_2_bio(async_session: AsyncSession, user_2: User) -> UserBio:
-    return await build_user_bio(
+    return await create_user_bio(
         async_session=async_session,
         user=user_2,
         birth_city="Snezhnogorsk",

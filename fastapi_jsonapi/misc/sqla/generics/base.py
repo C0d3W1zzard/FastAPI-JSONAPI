@@ -1,4 +1,4 @@
-from fastapi_jsonapi.data_layers.sqla_orm import SqlalchemyDataLayer
+from fastapi_jsonapi.data_layers.sqla.orm import SqlalchemyDataLayer
 from fastapi_jsonapi.views.detail_view import DetailViewBase
 from fastapi_jsonapi.views.list_view import ListViewBase
 

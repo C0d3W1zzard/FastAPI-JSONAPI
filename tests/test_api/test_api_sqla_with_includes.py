@@ -30,9 +30,17 @@ from examples.api_for_sqlalchemy.schemas import (
 from fastapi_jsonapi.api import RoutersJSONAPI
 from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.types_metadata.custom_filter_sql import sql_filter_lower_equals
+from fastapi_jsonapi.types_metadata.custom_sort_sql import sql_register_free_sort
 from tests.common import is_postgres_tests
 from tests.fixtures.app import build_alphabet_app, build_app_custom
-from tests.fixtures.entities import build_post, build_post_comment, build_workplace, create_user
+from tests.fixtures.entities import (
+    build_post,
+    build_post_comment,
+    build_workplace,
+    create_computer,
+    create_user,
+    create_user_bio,
+)
 from tests.fixtures.models import (
     Alpha,
     Beta,
@@ -3382,6 +3390,166 @@ class TestSorts:
             ),
             "jsonapi": {"version": "1.0"},
             "meta": {"count": 2, "totalPages": 1},
+        }
+
+    @pytest.mark.parametrize(
+        "age_order, movie_order, comp_order, user_1, user_2, user_3, expected_order",
+        [
+            pytest.param(
+                ASCENDING,
+                ASCENDING,
+                ASCENDING,
+                [10, "AAA", "COMP_1"],
+                [15, "BBB", "COMP_2"],
+                [20, "CCC", "COMP_3"],
+                ["user_1", "user_2", "user_3"],
+                id="ascending_simple",
+            ),
+            pytest.param(
+                DESCENDING,
+                DESCENDING,
+                DESCENDING,
+                [10, "AAA", "COMP_1"],
+                [15, "BBB", "COMP_2"],
+                [20, "CCC", "COMP_3"],
+                ["user_3", "user_2", "user_1"],
+                id="descending_simple",
+            ),
+            pytest.param(
+                ASCENDING,
+                ASCENDING,
+                ASCENDING,
+                [10, "AAA", "COMP_3"],
+                [15, "CCC", "COMP_2"],
+                [15, "BBB", "COMP_1"],
+                ["user_1", "user_3", "user_2"],
+                id="ascending_be_second_condition",
+            ),
+            pytest.param(
+                ASCENDING,
+                DESCENDING,
+                ASCENDING,
+                [10, "AAA", "COMP_3"],
+                [15, "BBB", "COMP_2"],
+                [15, "CCC", "COMP_1"],
+                ["user_1", "user_3", "user_2"],
+                id="descending_be_second_condition",
+            ),
+            pytest.param(
+                ASCENDING,
+                DESCENDING,
+                DESCENDING,
+                [10, "AAA", "COMP_3"],
+                [10, "AAA", "COMP_2"],
+                [10, "BBB", "COMP_1"],
+                ["user_3", "user_1", "user_2"],
+                id="last_condition",
+            ),
+        ],
+    )
+    async def test_sorts_by_relationships(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        async_session: AsyncSession,
+        age_order: str,
+        movie_order: str,
+        comp_order: str,
+        user_1: list[int, str],
+        user_2: list[int, str],
+        user_3: list[int, str],
+        expected_order: list[Literal["user_1", "user_2", "user_3"]],
+    ):
+        age, movie_1, computer_name = user_1
+        user_1 = await create_user(async_session, age=age)
+        await create_user_bio(async_session, user_1, favourite_movies=movie_1)
+        await create_computer(async_session, name=computer_name, user=user_1)
+
+        age, movie_2, computer_name = user_2
+        user_2 = await create_user(async_session, age=age)
+        await create_user_bio(async_session, user_2, favourite_movies=movie_2)
+        await create_computer(async_session, name=computer_name, user=user_2)
+
+        age, movie_3, computer_name = user_3
+        user_3 = await create_user(async_session, age=age)
+        await create_user_bio(async_session, user_3, favourite_movies=movie_3)
+        await create_computer(async_session, name=computer_name, user=user_3)
+
+        user_map = {
+            "user_1": user_1,
+            "user_2": user_2,
+            "user_3": user_3,
+        }
+
+        params = {
+            "filter": json.dumps(
+                [
+                    # Note: hit filters to ensure there are no conflicts between sort and filter joins
+                    {"name": "bio.favourite_movies", "op": "in", "val": [movie_1, movie_2, movie_3]},
+                ],
+            ).decode(),
+            "sort": f"{age_order}age,{movie_order}bio.favourite_movies,{comp_order}computers.name",
+        }
+        url = app.url_path_for("get_user_list")
+        response = await client.get(url, params=params)
+        assert response.status_code == status.HTTP_200_OK, response.text
+
+        response_json = response.json()
+        assert response_json
+        assert response_json["meta"] == {"count": 3, "totalPages": 1}
+        assert response_json["data"] == [
+            {
+                "id": f"{user_map[user].id}",
+                "attributes": UserAttributesBaseSchema.model_validate(user_map[user]).model_dump(),
+                "type": "user",
+            }
+            for user in expected_order
+        ]
+
+    @pytest.mark.parametrize(
+        "order, boris_position",
+        [
+            (ASCENDING, -1),
+            (DESCENDING, 0),
+        ],
+    )
+    async def test_register_free_sort(
+        self,
+        async_session: AsyncSession,
+        order: str,
+        boris_position: int,
+    ):
+        resource_type = "test_register_free_sort"
+        with suppress(KeyError):
+            RoutersJSONAPI.all_jsonapi_routers.pop(resource_type)
+
+        # lexicographic order: Anton, Boris, anton
+        await create_user(async_session, name="Anton")
+        await create_user(async_session, name="anton")
+        target_user = await create_user(async_session, name="Boris")
+
+        class UserWithNameFieldSortingSchema(UserAttributesBaseSchema):
+            name: Annotated[str, sql_register_free_sort]
+
+        app = build_app_custom(
+            model=User,
+            schema=UserWithNameFieldSortingSchema,
+            resource_type=resource_type,
+        )
+        params = {"sort": f"{order}name"}
+        url = app.url_path_for(f"get_{resource_type}_list")
+
+        async with AsyncClient(app=app, base_url="http://test") as client:
+            response = await client.get(url, params=params)
+            assert response.status_code == status.HTTP_200_OK, response.text
+            response_json = response.json()
+
+        expected_count = 3
+        assert len(response_json["data"]) == expected_count
+        assert response_json["data"][boris_position] == {
+            "id": f"{target_user.id}",
+            "attributes": UserWithNameFieldSortingSchema.model_validate(target_user).model_dump(),
+            "type": resource_type,
         }
 
 
