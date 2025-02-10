@@ -1,4 +1,4 @@
-from copy import deepcopy
+from copy import copy
 from typing import Annotated, Generator, Optional, Type
 
 import pytest
@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from examples.api_for_sqlalchemy.models import User
 from fastapi_jsonapi import RoutersJSONAPI
-from fastapi_jsonapi.schema_builder import SchemaBuilder
+from fastapi_jsonapi.schemas_storage import schemas_storage
 from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.validation_utils import extract_validators
 from tests.fixtures.app import build_app_custom
@@ -142,26 +142,18 @@ class TestValidators:
 
     @fixture(autouse=True)
     def _refresh_caches(self) -> Generator:
-        object_schemas_cache = deepcopy(SchemaBuilder.object_schemas_cache)
-        relationship_schema_cache = deepcopy(SchemaBuilder.relationship_schema_cache)
-        base_jsonapi_object_schemas_cache = deepcopy(SchemaBuilder.base_jsonapi_object_schemas_cache)
-
-        all_jsonapi_routers = deepcopy(RoutersJSONAPI.all_jsonapi_routers)
+        all_jsonapi_routers = copy(RoutersJSONAPI.all_jsonapi_routers)
+        schemas_data = copy(schemas_storage._data)
 
         yield
 
-        SchemaBuilder.object_schemas_cache = object_schemas_cache
-        SchemaBuilder.relationship_schema_cache = relationship_schema_cache
-        SchemaBuilder.base_jsonapi_object_schemas_cache = base_jsonapi_object_schemas_cache
-
         RoutersJSONAPI.all_jsonapi_routers = all_jsonapi_routers
+        schemas_storage._data = schemas_data
 
     def build_app(self, schema, resource_type: Optional[str] = None) -> FastAPI:
         return build_app_custom(
             model=User,
             schema=schema,
-            # schema_in_post=schema,
-            # schema_in_patch=schema,
             resource_type=resource_type or self.resource_type,
         )
 

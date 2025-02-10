@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Type, Type
 
 from fastapi import HTTPException, status
 from fastapi.requests import Request
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from fastapi_jsonapi import RoutersJSONAPI
 from fastapi_jsonapi.atomic.prepared_atomic_operation import LocalIdsType, OperationBase
@@ -150,14 +150,14 @@ class AtomicViewHandler:
                 results.append({})
                 continue
             only_empty_responses = False
+
+            data = response["data"]
             results.append(
-                {
-                    "data": response.data.model_dump() if isinstance(response.data, BaseModel) else response.data,
-                },
+                {"data": data},
             )
 
-            if operation.data.lid and response.data:
-                self.local_ids_cache[operation.data.type][operation.data.lid] = response.data.id
+            if operation.data.lid and data:
+                self.local_ids_cache[operation.data.type][operation.data.lid] = data["id"]
 
             # reset context var
             current_atomic_operation.reset(ctx_var_token)

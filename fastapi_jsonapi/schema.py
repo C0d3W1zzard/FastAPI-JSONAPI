@@ -6,9 +6,10 @@ Pydantic (for FastAPI).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from inspect import isclass
 from types import GenericAlias
-from typing import TYPE_CHECKING, Optional, Sequence, Type, Union, get_args
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, Type, Union, get_args
 
 from fastapi import FastAPI
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,6 +21,7 @@ from pydantic._internal._typing_extra import is_none_type
 from pydantic.fields import FieldInfo
 
 from fastapi_jsonapi.common import search_relationship_info
+from fastapi_jsonapi.types_metadata import RelationshipInfo
 
 if TYPE_CHECKING:
     from fastapi_jsonapi.data_typing import TypeSchema
@@ -135,6 +137,50 @@ RelationshipInfoSchema = Union[
 
 class JSONAPISchemaIntrospectionError(Exception):
     pass
+
+
+# todo: when 3.9 support is dropped, return back `slots=True to JSONAPIObjectSchemas dataclass`
+
+
+@dataclass(frozen=True)
+class JSONAPIObjectSchemas:
+    attributes_schema: Type[BaseModel]
+    relationships_schema: Type[BaseModel]
+    object_jsonapi_schema: Type[JSONAPIObjectSchema]
+    can_be_included_schemas: dict[str, Type[JSONAPIObjectSchema]]
+
+    @property
+    def included_schemas_list(self) -> list[Type[JSONAPIObjectSchema]]:
+        return list(self.can_be_included_schemas.values())
+
+
+@dataclass(frozen=True)
+class BuiltSchemasDTO:
+    schema_in_post: Type[BaseJSONAPIDataInSchema]
+    schema_in_post_data: Type[BaseJSONAPIItemInSchema]
+    schema_in_patch: Type[BaseJSONAPIDataInSchema]
+    schema_in_patch_data: Type[BaseJSONAPIItemInSchema]
+    detail_response_schema: Type[JSONAPIResultDetailSchema]
+    list_response_schema: Type[JSONAPIResultListSchema]
+
+
+FieldValidators = dict[str, Callable]
+
+
+@dataclass(frozen=True)
+class SchemasInfoDTO:
+    # id field
+    resource_id_field: tuple[Type, FieldInfo, Callable, FieldValidators]
+    # pre-built attributes
+    attributes_schema: Type[BaseModel]
+    # relationships
+    relationships_schema: Type[BaseModel]
+    # has any required relationship
+    has_required_relationship: bool
+    # anything that can be included
+    included_schemas: list[tuple[str, BaseModel, str]]
+
+    relationships_info: dict[str, tuple[RelationshipInfo, Any]]
 
 
 def get_model_field(schema: Type["TypeSchema"], field: str) -> str:

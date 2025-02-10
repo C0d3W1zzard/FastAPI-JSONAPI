@@ -818,28 +818,32 @@ class TestUserWithPostsWithInnerIncludes:
         (
             "include",
             "expected_relationships_inner_relations",
-            "expect_user_include",
+            "expected_users",
         ),
         [
-            (
+            pytest.param(
                 ["posts", "posts.user"],
                 {"post": ["user"], "user": []},
-                False,
+                ["user_1"],
+                id="case_0",
             ),
-            (
+            pytest.param(
                 ["posts", "posts.comments"],
                 {"post": ["comments"], "post_comment": []},
-                False,
+                [],
+                id="case_1",
             ),
-            (
+            pytest.param(
                 ["posts", "posts.user", "posts.comments"],
                 {"post": ["user", "comments"], "user": [], "post_comment": []},
-                False,
+                ["user_1"],
+                id="case_2",
             ),
-            (
+            pytest.param(
                 ["posts", "posts.user", "posts.comments", "posts.comments.user"],
                 {"post": ["user", "comments"], "post_comment": ["user"], "user": []},
-                True,
+                ["user_1", "user_2"],
+                id="case_3",
             ),
         ],
     )
@@ -854,7 +858,7 @@ class TestUserWithPostsWithInnerIncludes:
         user_2_comment_for_one_u1_post: PostComment,
         include: list[str],
         expected_relationships_inner_relations: dict[str, list[str]],
-        expect_user_include: bool,
+        expected_users: list[str],
     ):
         """
         Check returned data
@@ -909,6 +913,7 @@ class TestUserWithPostsWithInnerIncludes:
             user_2=user_2,
             user_1_posts=user_1_posts,
             user_2_comment_for_one_u1_post=user_2_comment_for_one_u1_post,
+            expected_users=expected_users,
         )
 
         for item_type, includes_names in expected_relationships_inner_relations.items():
@@ -925,9 +930,6 @@ class TestUserWithPostsWithInnerIncludes:
         for key in set(expected_includes).difference(expected_relationships_inner_relations):
             expected_includes.pop(key)
 
-        # XXX
-        if not expect_user_include:
-            expected_includes.pop("user", None)
         assert dict(included_as_map) == expected_includes
 
     def prepare_expected_includes(
@@ -936,8 +938,9 @@ class TestUserWithPostsWithInnerIncludes:
         user_2: User,
         user_1_posts: list[PostComment],
         user_2_comment_for_one_u1_post: PostComment,
+        expected_users: list[str],
     ):
-        return {
+        data = {
             "post": [
                 {
                     "id": f"{p.id}",
@@ -983,14 +986,25 @@ class TestUserWithPostsWithInnerIncludes:
                     },
                 },
             ],
-            "user": [
-                {
-                    "id": f"{user_2.id}",
-                    "type": "user",
-                    "attributes": UserAttributesBaseSchema.model_validate(user_2).model_dump(),
-                },
-            ],
         }
+
+        if not expected_users:
+            return data
+
+        users = {
+            "user_1": {
+                "id": f"{user_1.id}",
+                "type": "user",
+                "attributes": UserAttributesBaseSchema.model_validate(user_1).model_dump(),
+            },
+            "user_2": {
+                "id": f"{user_2.id}",
+                "type": "user",
+                "attributes": UserAttributesBaseSchema.model_validate(user_2).model_dump(),
+            },
+        }
+        data["user"] = [users[expected_user] for expected_user in expected_users]
+        return data
 
 
 async def test_method_not_allowed(app: FastAPI, client: AsyncClient):
@@ -1723,7 +1737,12 @@ class TestPatchObjects:
         }
 
     @pytest.mark.parametrize("check_type", ["ok", "fail"])
-    async def test_update_to_many_relationships(self, async_session: AsyncSession, check_type: Literal["ok", "fail"]):
+    async def test_update_to_many_relationships(
+        self,
+        async_session: AsyncSession,
+        check_type: Literal["ok", "fail"],
+        # clear_schemas_storage,
+    ):
         resource_type = "cascade_case"
         with suppress(KeyError):
             RoutersJSONAPI.all_jsonapi_routers.pop(resource_type)

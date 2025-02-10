@@ -5,12 +5,10 @@ from typing import TYPE_CHECKING, Any, TypeVar, Union
 
 from fastapi_jsonapi import BadRequest
 from fastapi_jsonapi.schema import BaseJSONAPIItemInSchema, JSONAPIResultDetailSchema
-from fastapi_jsonapi.views.utils import handle_jsonapi_fields
 from fastapi_jsonapi.views.view_base import ViewBase
 
 if TYPE_CHECKING:
     from fastapi_jsonapi.data_layers.base import BaseDataLayer
-    from fastapi_jsonapi.data_typing import TypeSchema
 
 logger = logging.getLogger(__name__)
 TypeModel = TypeVar("TypeModel")
@@ -33,8 +31,7 @@ class DetailViewBase(ViewBase):
         view_kwargs = {dl.url_id_field: object_id}
         db_object = await dl.get_object(view_kwargs=view_kwargs, qs=self.query_params)
 
-        response = self._build_detail_response(db_object)
-        return handle_jsonapi_fields(response, self.query_params, self.jsonapi)
+        return self._build_detail_response(db_object)
 
     async def handle_update_resource(
         self,
@@ -43,15 +40,14 @@ class DetailViewBase(ViewBase):
         **extra_view_deps,
     ) -> Union[JSONAPIResultDetailSchema, dict]:
         dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
-        response = await self.process_update_object(dl=dl, obj_id=obj_id, data_update=data_update)
-        return handle_jsonapi_fields(response, self.query_params, self.jsonapi)
+        return await self.process_update_object(dl=dl, obj_id=obj_id, data_update=data_update)
 
     async def process_update_object(
         self,
         dl: BaseDataLayer,
         obj_id: str,
         data_update: BaseJSONAPIItemInSchema,
-    ) -> TypeSchema:
+    ) -> dict:
         if obj_id != data_update.id:
             raise BadRequest(
                 detail="obj_id and data.id should be same",
