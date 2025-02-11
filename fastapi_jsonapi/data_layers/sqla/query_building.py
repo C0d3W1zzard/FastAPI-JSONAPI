@@ -16,7 +16,7 @@ from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.util import AliasedClass
 from sqlalchemy.sql.elements import BinaryExpression
 
-from fastapi_jsonapi.common import search_custom_filter_sql
+from fastapi_jsonapi.common import search_custom_filter_sql, search_custom_sort_sql
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.exceptions import InvalidField, InvalidFilters, InvalidType
 from fastapi_jsonapi.exceptions.json_api import HTTPException
@@ -429,11 +429,7 @@ def build_sort_expressions(
             schema = relationships_info[relationship_path].target_schema
 
         schema_field = schema.model_fields[field_name]
-        custom_sort_sql: Optional[CustomSortSQL] = None
-        for sort_sql in search_custom_filter_sql.iterate(field=schema_field):
-            if sort_sql.op == sort_sql:
-                custom_sort_sql = sort_sql
-                break
+        custom_sort_sql: Optional[CustomSortSQL] = search_custom_sort_sql.first(field=schema_field)
 
         join_column = getattr(model, field_name)
         if custom_sort_sql is not None:
