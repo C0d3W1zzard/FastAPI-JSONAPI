@@ -1,22 +1,20 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Type
+from typing import TYPE_CHECKING, Callable, Optional, Type
 
 from pydantic import BaseModel, field_validator, model_validator
+from pydantic._internal._decorators import PydanticDescriptorProxy
 
 if TYPE_CHECKING:
     # noinspection PyProtectedMember
     from pydantic._internal._decorators import DecoratorInfos
-
-    # noinspection PyProtectedMember
-    from pydantic.functional_validators import _V2Validator
 
 
 def extract_validators(
     model: Type[BaseModel],
     include_for_field_names: Optional[set[str]] = None,
     exclude_for_field_names: Optional[set[str]] = None,
-) -> dict[str, _V2Validator]:
+) -> tuple[dict[str, Callable], dict[str, PydanticDescriptorProxy]]:
     validators: DecoratorInfos = model.__pydantic_decorators__
 
     exclude_for_field_names = exclude_for_field_names or set()
@@ -25,7 +23,8 @@ def extract_validators(
             exclude_for_field_names,
         )
 
-    result_validators = {}
+    field_validators, model_validators = {}, {}
+
     # field validators
     for name, validator in validators.field_validators.items():
         for field_name in validator.info.fields:
@@ -36,11 +35,11 @@ def extract_validators(
             if include_for_field_names and field_name not in include_for_field_names:
                 continue
             validator_config = field_validator(field_name, mode=validator.info.mode)
-            result_validators[name] = validator_config(validator.func)
+            field_validators[name] = validator_config(validator.func)
 
     # model validators
     for name, validator in validators.model_validators.items():
         validator_config = model_validator(mode=validator.info.mode)
-        result_validators[name] = validator_config(validator.func)
+        model_validators[name] = validator_config(validator.func)
 
-    return result_validators
+    return field_validators, model_validators

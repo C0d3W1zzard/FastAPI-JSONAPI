@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Literal, Optional, Type, Union
+from typing import Any, Iterable, Literal, Optional, Type, Union
 
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.exc import IntegrityError
@@ -165,22 +165,21 @@ class BaseSQLA:
         return result
 
     @classmethod
-    async def query(
+    def query(
         cls,
         model: TypeModel,
         distinct_: bool = False,
-        fields: Optional[list] = None,
         filters: Optional[list[Union[BinaryExpression, bool]]] = None,
         for_update: Optional[dict] = None,
         join: Optional[list[RelationshipInfo]] = None,
         number: Optional[int] = None,
-        options: set = (),
+        options: Iterable = (),
         order: Optional[Union[str, UnaryExpression]] = None,
         size: Optional[int] = None,
         stmt: Optional[Select] = None,
     ) -> Select:
         if stmt is None:
-            stmt = select(model) if fields is None else select(*fields)
+            stmt = select(model)
 
         if filters is not None:
             stmt = stmt.where(*filters)

@@ -3,6 +3,7 @@ from typing import Annotated, Generator, Optional, Type
 
 import pytest
 from fastapi import FastAPI, status
+from fastapi.datastructures import QueryParams
 from httpx import AsyncClient
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pytest_asyncio import fixture
@@ -702,6 +703,65 @@ class TestValidators:
             expected_detail=expected_detail,
         )
 
+    async def test_validator_calls_for_field_requests(self, user_1: User):
+        class UserSchemaWithValidator(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
+            name: str
+
+            @field_validator("name", mode="before")
+            @classmethod
+            def pre_field_validator(cls, value):
+                return f"{value} (pre_field)"
+
+            @field_validator("name", mode="after")
+            @classmethod
+            def post_field_validator(cls, value):
+                return f"{value} (post_field)"
+
+            @model_validator(mode="before")
+            @classmethod
+            def pre_model_validator(cls, data: dict):
+                name = data["name"]
+                data["name"] = f"{name} (pre_model)"
+                return data
+
+            @model_validator(mode="after")
+            @classmethod
+            def post_model_validator(self, value):
+                value.name = f"{value.name} (post_model)"
+                return value
+
+        params = QueryParams(
+            [
+                (f"fields[{self.resource_type}]", "name"),
+            ],
+        )
+
+        app = self.build_app(UserSchemaWithValidator)
+
+        async with AsyncClient(app=app, base_url="http://test") as client:
+            url = app.url_path_for(f"get_{self.resource_type}_detail", obj_id=user_1.id)
+            res = await client.get(url, params=params)
+            assert res.status_code == status.HTTP_200_OK, res.text
+            res_json = res.json()
+
+        assert res_json["data"]
+        assert res_json["data"].pop("id")
+        assert res_json == {
+            "data": {
+                "attributes": {
+                    # check validators call order
+                    "name": f"{user_1.name} (pre_model) (pre_field) (post_field) (post_model)",
+                },
+                "type": self.resource_type,
+            },
+            "jsonapi": {"version": "1.0"},
+            "meta": None,
+        }
+
 
 class TestValidationUtils:
     @pytest.mark.parametrize(
@@ -733,13 +793,9 @@ class TestValidationUtils:
             def item_2_validator(cls, value):
                 return value
 
-        assert (
-            set(
-                extract_validators(
-                    ValidationSchema,
-                    include_for_field_names=include,
-                    exclude_for_field_names=exclude,
-                ),
-            )
-            == expected
+        field_validators, model_validators = extract_validators(
+            ValidationSchema,
+            include_for_field_names=include,
+            exclude_for_field_names=exclude,
         )
+        assert {*field_validators.keys(), *model_validators.keys()} == expected

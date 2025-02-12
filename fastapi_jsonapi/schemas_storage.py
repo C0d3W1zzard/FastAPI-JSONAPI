@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections import defaultdict
 from typing import Any, Literal, Optional, Type
 
@@ -57,18 +55,29 @@ class SchemasStorage:
         source_schema: Type[TypeSchema],
         data_schema: Type[TypeSchema],
         attributes_schema: Type[TypeSchema],
+        field_schemas: dict[str, Type[TypeSchema]],
         relationships_info: dict[str, tuple[RelationshipInfo, Any]],
+        model_validators: dict,
     ):
         self._init_resource_if_needed(resource_type)
         if operation_type in self._data[resource_type]:
             return
 
+        before_validators, after_validators = {}, {}
+        for validator_name, validator in model_validators.items():
+            if validator.decorator_info.mode == "before":
+                before_validators[validator_name] = validator
+            else:
+                after_validators[validator_name] = validator
+
         self._data[resource_type][operation_type] = {
             "attrs_schema": attributes_schema,
+            "field_schemas": field_schemas,
             "data_schema": data_schema,
             "relationships_info": {
                 relationship_name: info for relationship_name, (info, _) in relationships_info.items()
             },
+            "model_validators": (before_validators, after_validators),
         }
         self._registered_schemas.add((source_schema, resource_type, operation_type))
         model = models_storage.get_model(resource_type)
@@ -82,7 +91,7 @@ class SchemasStorage:
                 continue
 
             relationship_model = models_storage.search_relationship_model(resource_type, model, relationship_name)
-            models_storage.add_model(info.resource_type, relationship_model)
+            models_storage.add_model(info.resource_type, relationship_model, info.id_field_name)
 
             dto = builder._get_info_from_schema_for_building(
                 base_name=f"{info.resource_type}_hidden_generation",
@@ -104,7 +113,9 @@ class SchemasStorage:
                 source_schema=relationship_source_schema,
                 data_schema=data_schema,
                 attributes_schema=dto.attributes_schema,
+                field_schemas=dto.field_schemas,
                 relationships_info=dto.relationships_info,
+                model_validators=dto.model_validators,
             )
 
     def get_data_schema(
@@ -120,6 +131,21 @@ class SchemasStorage:
         operation_type: Literal["create", "update", "get"],
     ) -> Optional[TypeSchema]:
         return self._data[resource_type][operation_type]["attrs_schema"]
+
+    def get_field_schema(
+        self,
+        resource_type: str,
+        operation_type: Literal["create", "update", "get"],
+        field_name: str,
+    ) -> Optional[TypeSchema]:
+        return self._data[resource_type][operation_type]["field_schemas"].get(field_name)
+
+    def get_model_validators(
+        self,
+        resource_type: str,
+        operation_type: Literal["create", "update", "get"],
+    ) -> tuple[dict, dict]:
+        return self._data[resource_type][operation_type]["model_validators"]
 
     def get_relationship(
         self,

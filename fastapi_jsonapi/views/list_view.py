@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from fastapi_jsonapi.models_storage import models_storage
 from fastapi_jsonapi.schema import BaseJSONAPIItemInSchema
 from fastapi_jsonapi.views.view_base import ViewBase
 
@@ -51,7 +52,7 @@ class ListViewBase(ViewBase):
     async def process_create_object(self, dl: BaseDataLayer, data_create: BaseJSONAPIItemInSchema) -> dict:
         db_object = await dl.create_object(data_create=data_create, view_kwargs={})
 
-        view_kwargs = {dl.url_id_field: dl.get_object_id(db_object)}
+        view_kwargs = {dl.url_id_field: models_storage.get_object_id(db_object, self.jsonapi.type_)}
         if self.query_params.include:
             db_object = await dl.get_object(view_kwargs=view_kwargs, qs=self.query_params)
 

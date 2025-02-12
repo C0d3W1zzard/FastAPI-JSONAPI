@@ -1,5 +1,5 @@
 import logging
-from typing import Callable, Type
+from typing import Any, Callable, Type
 
 from fastapi_jsonapi.data_typing import TypeModel
 from fastapi_jsonapi.exceptions import BadRequest, InternalServerError
@@ -11,17 +11,51 @@ class ModelsStorage:
     relationship_search_handlers: dict[str, Callable[[str, Type[TypeModel], str], Type[TypeModel]]]
 
     def __init__(self):
-        self._data: dict[str, TypeModel] = {}
+        self._models: dict[str, Type[TypeModel]] = {}
+        self._id_field_names: dict[str, str] = {}
         self.relationship_search_handlers = {}
 
-    def add_model(self, resource_type: str, model: Type[TypeModel]):
-        self._data[resource_type] = model
+    def add_model(self, resource_type: str, model: Type[TypeModel], id_field_name: str):
+        self._models[resource_type] = model
+        self._id_field_names[resource_type] = id_field_name
 
     def get_model(self, resource_type: str) -> Type[TypeModel]:
         try:
-            return self._data[resource_type]
+            return self._models[resource_type]
         except KeyError:
-            raise InternalServerError(detail=f"Not found model for resource_type {resource_type!r}.")
+            raise InternalServerError(
+                detail=f"Not found model for resource_type {resource_type!r}.",
+            )
+
+    def get_model_id_field_name(self, resource_type: str) -> str:
+        try:
+            return self._id_field_names[resource_type]
+        except KeyError:
+            raise InternalServerError(
+                detail=f"Not found model id field name for resource_type {resource_type!r}.",
+            )
+
+    def get_object_id_field(self, resource_type: str) -> Any:
+        model = self.get_model(resource_type)
+        id_field_name = self.get_model_id_field_name(resource_type)
+
+        try:
+            return getattr(model, id_field_name)
+        except AttributeError:
+            raise InternalServerError(
+                detail=f"Can't get object id field. The model {model.__name__!r} has no attribute {id_field_name!r}",
+            )
+
+    def get_object_id(self, db_object: TypeModel, resource_type: str) -> Any:
+        id_field_name = self.get_model_id_field_name(resource_type)
+
+        try:
+            return getattr(db_object, id_field_name)
+        except AttributeError:
+            model = self.get_model(resource_type)
+            raise InternalServerError(
+                detail=f"Can't get object id. The model {model.__name__!r} has no attribute {id_field_name!r}.",
+            )
 
     def register_search_handler(self, orm_mode: str, handler: Callable[[str, Type[TypeModel], str], Type[TypeModel]]):
         self.relationship_search_handlers[orm_mode] = handler
@@ -40,7 +74,7 @@ class ModelsStorage:
         except KeyError:
             raise InternalServerError(
                 detail=f"Not found orm handler for {self._orm_mode!r}. "
-                f"Please register this with SchemasStorage.register_search_handler",
+                f"Please register this with SchemasStorage.register_search_handler.",
             )
 
         return orm_handler(resource_type, model, field_name)

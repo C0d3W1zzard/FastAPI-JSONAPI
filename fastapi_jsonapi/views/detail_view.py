@@ -53,7 +53,10 @@ class DetailViewBase(ViewBase):
                 detail="obj_id and data.id should be same.",
                 pointer="/data/id",
             )
-        view_kwargs = {dl.url_id_field: obj_id}
+        view_kwargs = {
+            dl.url_id_field: obj_id,
+            "required_to_load": data_update.attributes.model_fields.keys(),
+        }
         db_object = await dl.get_object(view_kwargs=view_kwargs, qs=self.query_params)
 
         await dl.update_object(db_object, data_update, view_kwargs)

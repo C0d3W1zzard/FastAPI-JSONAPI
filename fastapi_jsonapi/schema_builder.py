@@ -132,7 +132,9 @@ class SchemaBuilder:
             source_schema=schema,
             data_schema=object_jsonapi_schema,
             attributes_schema=dto.attributes_schema,
+            field_schemas=dto.field_schemas,
             relationships_info=dto.relationships_info,
+            model_validators=dto.model_validators,
         )
 
         wrapped_object_jsonapi_schema = create_model(
@@ -230,7 +232,7 @@ class SchemaBuilder:
                 if related_schema := get_schema_from_field_annotation(field):
                     included_schemas.append((name, related_schema, relationship_info.resource_type))
             elif name == "id":
-                id_validators = extract_validators(
+                id_validators, _ = extract_validators(
                     model=schema,
                     include_for_field_names={"id"},
                 )
@@ -245,12 +247,26 @@ class SchemaBuilder:
             from_attributes=True,
         )
 
+        field_validators, model_validators = extract_validators(schema, exclude_for_field_names={"id"})
         attributes_schema = create_model(
             f"{base_name}AttributesJSONAPI",
             **attributes_schema_fields,
             __config__=model_config,
-            __validators__=extract_validators(schema, exclude_for_field_names={"id"}),
+            __validators__={**field_validators, **model_validators},
         )
+
+        field_schemas = {}
+        for field_name, field in attributes_schema_fields.items():
+            field_validators, _ = extract_validators(
+                schema,
+                include_for_field_names={field_name},
+            )
+            field_schemas[field_name] = create_model(
+                f"{base_name}{field_name.title()}AttributeJSONAPI",
+                **{field_name: field},
+                __config__=model_config,
+                __validators__=field_validators,
+            )
 
         relationships_schema = create_model(
             f"{base_name}RelationshipsJSONAPI",
@@ -265,6 +281,8 @@ class SchemaBuilder:
             relationships_info=relationships_info,
             has_required_relationship=has_required_relationship,
             included_schemas=included_schemas,
+            field_schemas=field_schemas,
+            model_validators=model_validators,
         )
 
     @classmethod
@@ -440,7 +458,9 @@ class SchemaBuilder:
             source_schema=schema,
             data_schema=relationship_less_object_jsonapi_schema,
             attributes_schema=dto.attributes_schema,
+            field_schemas=dto.field_schemas,
             relationships_info=dto.relationships_info,
+            model_validators=dto.model_validators,
         )
 
         can_be_included_schemas = {}

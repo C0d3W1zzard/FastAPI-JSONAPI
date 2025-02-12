@@ -26,7 +26,6 @@ class BaseDataLayer:
         model: Type[TypeModel],
         resource_type: str,
         url_id_field: str,
-        id_name_field: Optional[str] = None,
         disable_collection_count: bool = False,
         default_collection_count: int = -1,
         **kwargs,
@@ -38,7 +37,6 @@ class BaseDataLayer:
         :param schema:
         :param model:
         :param url_id_field:
-        :param id_name_field:
         :param disable_collection_count:
         :param default_collection_count:
         :param resource_type: resource type
@@ -49,7 +47,6 @@ class BaseDataLayer:
         self.model = model
         self.resource_type = resource_type
         self.url_id_field = url_id_field
-        self.id_name_field = id_name_field
         self.disable_collection_count: bool = disable_collection_count
         self.default_collection_count: int = default_collection_count
         self.is_atomic = False
@@ -93,26 +90,6 @@ class BaseDataLayer:
         :return DeclarativeMeta: an object
         """
         raise NotImplementedError
-
-    def get_object_id_field_name(self):
-        """
-        compound key may cause errors
-
-        :return:
-        """
-        return self.id_name_field
-
-    def get_object_id_field(self):
-        id_name_field = self.get_object_id_field_name()
-        try:
-            return getattr(self.model, id_name_field)
-        except AttributeError:
-            msg = f"{self.model.__name__} has no attribute {id_name_field}"
-            # TODO: any custom exception type?
-            raise Exception(msg)
-
-    def get_object_id(self, obj: TypeModel):
-        return getattr(obj, self.get_object_id_field_name())
 
     async def get_object(self, view_kwargs: dict, qs: Optional[QueryStringManager] = None) -> TypeModel:
         """

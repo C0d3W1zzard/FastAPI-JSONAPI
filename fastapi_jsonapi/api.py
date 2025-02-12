@@ -77,6 +77,7 @@ class RoutersJSONAPI:
         pagination_default_limit: Optional[int] = None,
         methods: Iterable[str] = (),
         ending_slash: bool = True,
+        model_id_field_name: str = "id",
     ) -> None:
         """
         Initialize router items.
@@ -122,7 +123,7 @@ class RoutersJSONAPI:
             msg = f"Resource type {self.type_!r} already registered"
             raise ValueError(msg)
         self.all_jsonapi_routers[self.type_] = self
-        models_storage.add_model(resource_type, model)
+        models_storage.add_model(resource_type, model, model_id_field_name)
 
         self.pagination_default_size: Optional[int] = pagination_default_size
         self.pagination_default_number: Optional[int] = pagination_default_number

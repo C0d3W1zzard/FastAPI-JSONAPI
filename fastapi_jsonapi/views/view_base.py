@@ -11,6 +11,7 @@ from fastapi_jsonapi import QueryStringManager, RoutersJSONAPI
 from fastapi_jsonapi.common import get_relationship_info_from_field_metadata
 from fastapi_jsonapi.data_layers.base import BaseDataLayer
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
+from fastapi_jsonapi.models_storage import models_storage
 from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.schemas_storage import schemas_storage
 from fastapi_jsonapi.types_metadata import RelationshipInfo
@@ -131,16 +132,45 @@ class ViewBase:
         cls,
         db_item,
         resource_type: str,
-        exclude_fields_rules: Optional[dict[str, dict]] = None,
+        include_fields: Optional[dict[str, dict[str, Type[TypeSchema]]]] = None,
     ) -> dict:
-        attrs_schema = schemas_storage.get_attrs_schema(resource_type, operation_type="get")
-        data_schema = schemas_storage.get_data_schema(resource_type, operation_type="get")
-        return data_schema(
-            id=f"{db_item.id}",
-            attributes=attrs_schema.model_validate(db_item),
-        ).model_dump(
-            exclude=(exclude_fields_rules or {}).get(resource_type, {}),
-        )
+        if include_fields is None or not (field_schemas := include_fields.get(resource_type)):
+            attrs_schema = schemas_storage.get_attrs_schema(resource_type, operation_type="get")
+            data_schema = schemas_storage.get_data_schema(resource_type, operation_type="get")
+            return data_schema(
+                id=f"{db_item.id}",
+                attributes=attrs_schema.model_validate(db_item),
+            ).model_dump()
+
+        result_attributes = {}
+        # empty str means skip all attributes
+        if "" not in field_schemas:
+            pre_values = {}
+            for field_name, field_schema in field_schemas.items():
+                pre_values[field_name] = getattr(db_item, field_name)
+
+            before_validators, after_validators = schemas_storage.get_model_validators(
+                resource_type,
+                operation_type="get",
+            )
+            if before_validators:
+                for validator_name, validator in before_validators.items():
+                    pre_values = validator.wrapped(pre_values)
+
+            for field_name, field_schema in field_schemas.items():
+                validated_model = field_schema(**{field_name: pre_values[field_name]})
+
+                if after_validators:
+                    for validator_name, validator in after_validators.items():
+                        validated_model = validator.wrapped(validated_model)
+
+                result_attributes[field_name] = getattr(validated_model, field_name)
+
+        return {
+            "id": f"{models_storage.get_object_id(db_item, resource_type)}",
+            "type": resource_type,
+            "attributes": result_attributes,
+        }
 
     def _prepare_include_params(self) -> list[list[str]]:
         result = []
@@ -166,7 +196,7 @@ class ViewBase:
         items_data: list[dict],
         resource_type: str,
         include_paths: list[Iterable[str]],
-        exclude_fields_rules: dict[str, dict],
+        include_fields: dict[str, dict[str, Type[TypeSchema]]],
         result_included: Optional[dict] = None,
     ) -> dict[tuple[str, str], dict]:
         result_included = result_included or {}
@@ -194,7 +224,7 @@ class ViewBase:
                             relationship_item_data = self._prepare_item_data(
                                 db_item=relationship_db_item,
                                 resource_type=info.resource_type,
-                                exclude_fields_rules=exclude_fields_rules,
+                                include_fields=include_fields,
                             )
                             result_included[include_key] = relationship_item_data
 
@@ -232,7 +262,7 @@ class ViewBase:
                         resource_type=info.resource_type,
                         include_paths=[include_path],
                         result_included=result_included,
-                        exclude_fields_rules=exclude_fields_rules,
+                        include_fields=include_fields,
                     )
 
                 item_data["relationships"][target_relationship] = {"data": relationship_data}
@@ -252,19 +282,23 @@ class ViewBase:
 
         return result
 
-    def _get_exclude_fields(self) -> dict[str, dict[str, set[str]]]:
-        exclude_fields_rules = {}
+    def _get_include_fields(self) -> dict[str, dict[str, Type[TypeSchema]]]:
+        include_fields = {}
         for resource_type, field_names in self.query_params.fields.items():
-            schema = schemas_storage.get_attrs_schema(resource_type, operation_type="get")
-            exclude_fields_rules[resource_type] = {
-                "attributes": set(self._get_schema_field_names(schema)).difference(field_names),
-            }
+            include_fields[resource_type] = {}
 
-        return exclude_fields_rules
+            for field_name in field_names:
+                include_fields[resource_type][field_name] = schemas_storage.get_field_schema(
+                    resource_type=resource_type,
+                    operation_type="get",
+                    field_name=field_name,
+                )
+
+        return include_fields
 
     def _build_detail_response(self, db_item: TypeModel) -> dict:
-        exclude_fields_rules = self._get_exclude_fields()
-        item_data = self._prepare_item_data(db_item, self.jsonapi.type_, exclude_fields_rules)
+        include_fields = self._get_include_fields()
+        item_data = self._prepare_item_data(db_item, self.jsonapi.type_, include_fields)
         response = {
             "data": item_data,
             "jsonapi": {"version": "1.0"},
@@ -277,7 +311,7 @@ class ViewBase:
                 items_data=[item_data],
                 include_paths=self._prepare_include_params(),
                 resource_type=self.jsonapi.type_,
-                exclude_fields_rules=exclude_fields_rules,
+                include_fields=include_fields,
             )
             response["included"] = [value for _, value in sorted(included.items(), key=lambda item: item[0])]
 
@@ -289,9 +323,9 @@ class ViewBase:
         count: int,
         total_pages: int,
     ) -> dict:
-        exclude_fields_rules = self._get_exclude_fields()
+        include_fields = self._get_include_fields()
         items_data = [
-            self._prepare_item_data(db_item, self.jsonapi.type_, exclude_fields_rules) for db_item in items_from_db
+            self._prepare_item_data(db_item, self.jsonapi.type_, include_fields) for db_item in items_from_db
         ]
         response = {
             "data": items_data,
@@ -305,7 +339,7 @@ class ViewBase:
                 items_data=items_data,
                 resource_type=self.jsonapi.type_,
                 include_paths=self._prepare_include_params(),
-                exclude_fields_rules=exclude_fields_rules,
+                include_fields=include_fields,
             )
             response["included"] = [value for _, value in sorted(included.items(), key=lambda item: item[0])]
 

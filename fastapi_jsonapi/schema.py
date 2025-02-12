@@ -182,6 +182,10 @@ class SchemasInfoDTO:
 
     relationships_info: dict[str, tuple[RelationshipInfo, Any]]
 
+    field_schemas: dict[str, Type[BaseModel]]
+
+    model_validators: dict
+
 
 def get_model_field(schema: Type["TypeSchema"], field: str) -> str:
     """

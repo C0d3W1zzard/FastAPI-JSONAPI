@@ -8,8 +8,7 @@ from typing import Any, Iterable, Literal, Optional, Type
 from pydantic import BaseModel
 from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
-from sqlalchemy.inspection import inspect
-from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.orm import joinedload, load_only, selectinload
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.collections import InstrumentedList
 from sqlalchemy.sql import Select
@@ -246,13 +245,45 @@ class SqlalchemyDataLayer(BaseDataLayer):
         await self.after_create_object(obj, model_kwargs, view_kwargs)
         return obj
 
-    def get_object_id_field_name(self):
-        """
-        compound key may cause errors
+    def get_fields_options(
+        self,
+        resource_type: str,
+        qs: QueryStringManager,
+        required_to_load: Optional[set] = None,
+    ) -> set:
+        required_to_load = required_to_load or set()
 
-        :return:
-        """
-        return self.id_name_field or inspect(self.model).primary_key[0].key
+        if resource_type not in qs.fields:
+            return set()
+
+        # empty str means skip all attributes
+        if "" not in qs.fields[resource_type]:
+            required_to_load.update(field_name for field_name in qs.fields[resource_type])
+
+        return self.get_load_only_options(
+            resource_type=resource_type,
+            field_names=required_to_load,
+        )
+
+    @staticmethod
+    def get_load_only_options(
+        resource_type: str,
+        field_names: Iterable[str],
+    ) -> set:
+        model = models_storage.get_model(resource_type)
+        options = {
+            load_only(
+                getattr(
+                    model,
+                    models_storage.get_model_id_field_name(resource_type),
+                ),
+            ),
+        }
+
+        for field_name in field_names:
+            options.add(load_only(getattr(model, field_name)))
+
+        return options
 
     async def get_object(
         self,
@@ -268,17 +299,24 @@ class SqlalchemyDataLayer(BaseDataLayer):
         """
         await self.before_get_object(view_kwargs)
 
-        filter_field = self.get_object_id_field()
+        filter_field = models_storage.get_object_id_field(self.resource_type)
         filter_value = self.prepare_id_value(filter_field, view_kwargs[self.url_id_field])
 
-        relation_join_objects: list = []
+        options = set()
         if qs is not None:
-            relation_join_objects = self.eagerload_includes(qs)
+            options.update(self.eagerload_includes(qs))
+            options.update(
+                self.get_fields_options(
+                    resource_type=self.resource_type,
+                    qs=qs,
+                    required_to_load=set(view_kwargs.get("required_to_load", set())),
+                ),
+            )
 
-        query = await self._base_sql.query(
+        query = self._base_sql.query(
             model=self.model,
             filters=[filter_field == filter_value],
-            options=set(relation_join_objects),
+            options=options,
             stmt=self._query,
         )
         obj = await self._base_sql.one_or_raise(
@@ -317,16 +355,16 @@ class SqlalchemyDataLayer(BaseDataLayer):
             for relationship_path in relationship_paths
         ]
 
-        relation_join_objects: list = []
+        options = self.get_fields_options(self.resource_type, qs)
         if self.eagerload_includes_:
-            relation_join_objects = self.eagerload_includes(qs)
+            options.update(self.eagerload_includes(qs))
 
-        query = await self._base_sql.query(
+        query = self._base_sql.query(
             model=self.model,
             filters=self.get_filter_expressions(qs),
             join=relationships_info,
             number=qs.pagination.number,
-            options=set(relation_join_objects),
+            options=options,
             order=self.get_sort_expressions(qs),
             size=qs.pagination.size,
             stmt=self._query,
@@ -535,7 +573,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
         id_field = getattr(related_model, related_id_field)
         id_values = [self.prepare_id_value(id_field, id_) for id_ in ids]
 
-        query = await self._base_sql.query(
+        query = self._base_sql.query(
             model=related_model,
             filters=[id_field.in_(id_values)],
         )
@@ -622,6 +660,13 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 current_resource_type = relationship_info.resource_type
                 current_model = models_storage.get_model(current_resource_type)
 
+                relation_join_object = relation_join_object.options(
+                    *self.get_fields_options(
+                        resource_type=current_resource_type,
+                        qs=qs,
+                    ),
+                )
+
             relation_join_objects.append(relation_join_object)
 
         return relation_join_objects
@@ -638,7 +683,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
         if (id_value := model_kwargs.get("id")) and self.auto_convert_id_to_column_type:
-            model_field = self.get_object_id_field()
+            model_field = models_storage.get_object_id_field(resource_type=self.resource_type)
             model_kwargs.update(id=self.prepare_id_value(model_field, id_value))
 
     async def after_create_object(
