@@ -15,7 +15,6 @@ from fastapi.responses import ORJSONResponse as JSONResponse
 from examples.api_for_sqlalchemy.api.views_base import db
 from examples.api_for_sqlalchemy.models.base import Base
 from examples.api_for_sqlalchemy.urls import add_routes
-from fastapi_jsonapi import init
 
 CURRENT_DIR = Path(__file__).resolve().parent
 sys.path.append(f"{CURRENT_DIR.parent.parent}")
@@ -26,7 +25,6 @@ sys.path.append(f"{CURRENT_DIR.parent.parent}")
 async def lifespan(app: FastAPI):
     app.config = {"MAX_INCLUDE_DEPTH": 5}
     add_routes(app)
-    init(app)
 
     async with db.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

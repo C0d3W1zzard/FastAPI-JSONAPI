@@ -7,9 +7,8 @@ from typing_extensions import Annotated
 
 from examples.api_for_sqlalchemy.models.db import DB
 from fastapi_jsonapi.exceptions import Forbidden
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
-from fastapi_jsonapi.views.view_base import ViewBase
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
+from fastapi_jsonapi.views import ViewBase, Operation, OperationConfig
 
 db = DB(
     url="sqlite+aiosqlite:///tmp/db.sqlite3",
@@ -39,22 +38,13 @@ class AdminOnlyPermission(BaseModel):
     is_admin: Optional[bool] = Depends(check_that_user_is_admin)
 
 
-class DetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class View(ViewBaseGeneric):
+    operation_dependencies: ClassVar[dict[Operation, OperationConfig]] = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
         ),
-    }
-
-
-class ListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.GET: HTTPMethodConfig(
+        Operation.GET: OperationConfig(
             dependencies=AdminOnlyPermission,
-        ),
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=common_handler,
         ),
     }

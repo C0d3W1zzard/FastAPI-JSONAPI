@@ -230,6 +230,19 @@ Response:
   :language: HTTP
 
 
+If you want retrieve relationships only you can use the relationship endpoint associated with target resource.
+
+Request:
+
+.. literalinclude:: ./http_snippets/snippets/relationship_api__get_user_with_computers_as_relationship
+  :language: HTTP
+
+Response:
+
+.. literalinclude:: ./http_snippets/snippets/relationship_api__get_user_with_computers_as_relationship_result
+  :language: HTTP
+
+
 Check user's computers without loading actual user
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

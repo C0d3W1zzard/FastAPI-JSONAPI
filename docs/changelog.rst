@@ -1,6 +1,39 @@
 Changelog
 #########
 
+**3.0.0**
+*********
+
+Backwards compatibility changes
+===============================
+* Removed support pydantic v1 by `@NatalyaGrigoreva`_
+* Minimal fastapi version up to fastapi>=0.112.3 by `@NatalyaGrigoreva`_
+* Updated minimal pydantic version pydantic>=2.6.0 by `@NatalyaGrigoreva`_
+* Added required dependency orjson>=3.10.0 by `@NatalyaGrigoreva`_
+* Updated framework api by `@NatalyaGrigoreva`_, `@CosmoV`_
+
+Features
+========
+* Added support of pydantic v2 by `@NatalyaGrigoreva`_
+* Improved sqla orm query building by `@NatalyaGrigoreva`_
+* Updated logic of creation custom sql filters by `@mahenzon`_
+* Several bugfixes by `@NatalyaGrigoreva`_
+
+Performance improvements
+========================
+
+* Updated ViewBase logic of response building by `@CosmoV`_
+* Added storages for application lifetime entities by `@CosmoV`_
+* Updated "fields" feature logic by `@CosmoV`_
+
+Authors
+"""""""
+
+* `@CosmoV`_
+* `@NatalyaGrigoreva`_
+* `@mahenzon`_
+
+
 **2.8.0**
 *********
 
@@ -69,7 +102,7 @@ Fix relationships filtering, refactor alchemy helpers
 
 * Fix filter by relationships by `@CosmoV`_ in `#52 <https://github.com/mts-ai/FastAPI-JSONAPI/pull/52>`_
 * Add Codecov by `@mahenzon`_ in `#72 <https://github.com/mts-ai/FastAPI-JSONAPI/pull/72>`_
-* Set RoutersJSONAPI class on AtomicViewHandler by `@mahenzon`_ in `#7b2557f <https://github.com/mts-ai/FastAPI-JSONAPI/commit/7b2557f9e341c1210200efce0f7b47c15d4cac4e>`_
+* Set ApplicationBuilder class on AtomicViewHandler by `@mahenzon`_ in `#7b2557f <https://github.com/mts-ai/FastAPI-JSONAPI/commit/7b2557f9e341c1210200efce0f7b47c15d4cac4e>`_
 
 Authors
 """""""
@@ -316,3 +349,4 @@ Enhancements and bug fixes
 .. _`@mahenzon`: https://github.com/mahenzon
 .. _`@CosmoV`: https://github.com/CosmoV
 .. _`@tpynio`: https://github.com/tpynio
+.. _`@NatalyaGrigoreva`: https://github.com/NatalyaGrigoreva

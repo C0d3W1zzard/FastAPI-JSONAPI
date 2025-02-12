@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Optional
 
 import uvicorn
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import ORJSONResponse as JSONResponse
 from pydantic import ConfigDict
 from sqlalchemy.engine import make_url
@@ -12,11 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from examples.api_for_sqlalchemy.models.db import DB
-from fastapi_jsonapi import RoutersJSONAPI, init
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
+from fastapi_jsonapi import ApplicationBuilder
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
 from fastapi_jsonapi.schema_base import BaseModel
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
-from fastapi_jsonapi.views.view_base import ViewBase
+from fastapi_jsonapi.views import Operation, OperationConfig, ViewBase
 
 CURRENT_DIR = Path(__file__).resolve().parent
 sys.path.append(f"{CURRENT_DIR.parent.parent}")
@@ -60,18 +59,9 @@ def session_dependency_handler(view: ViewBase, dto: SessionDependency) -> dict[s
     }
 
 
-class UserDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=session_dependency_handler,
-        ),
-    }
-
-
-class UserListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class UserView(ViewBaseGeneric):
+    operation_dependencies: ClassVar = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=session_dependency_handler,
         ),
@@ -79,34 +69,22 @@ class UserListView(ListViewBaseGeneric):
 
 
 def add_routes(app: FastAPI):
-    tags = [
-        {
-            "name": "User",
-            "description": "",
-        },
-    ]
-
-    router: APIRouter = APIRouter()
-    RoutersJSONAPI(
-        router=router,
+    builder = ApplicationBuilder(app)
+    builder.add_resource(
         path="/users",
         tags=["User"],
-        class_detail=UserDetailView,
-        class_list=UserListView,
+        view=UserView,
         schema=UserSchema,
         model=User,
         resource_type="user",
     )
-
-    app.include_router(router, prefix="")
-    return tags
+    builder.initialize()
 
 
 # noinspection PyUnusedLocal
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     add_routes(app)
-    init(app)
 
     async with db.engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

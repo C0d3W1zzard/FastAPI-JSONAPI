@@ -1,10 +1,9 @@
 from fastapi import FastAPI
 
-from fastapi_jsonapi import RoutersJSONAPI
+from fastapi_jsonapi import ApplicationBuilder
 from fastapi_jsonapi.data_layers.base import BaseDataLayer
 from fastapi_jsonapi.data_layers.sqla.orm import SqlalchemyDataLayer
-from fastapi_jsonapi.views.detail_view import DetailViewBase
-from fastapi_jsonapi.views.list_view import ListViewBase
+from fastapi_jsonapi.views import ViewBase
 
 
 class MyCustomDataLayer(BaseDataLayer):
@@ -18,19 +17,14 @@ class MyCustomSqlaDataLayer(SqlalchemyDataLayer):
         raise Exception("not allowed to delete objects")
 
 
-class UserDetailView(DetailViewBase):
+class UserView(ViewBase):
     data_layer_cls = MyCustomDataLayer
 
 
-class UserListView(ListViewBase):
-    data_layer_cls = MyCustomSqlaDataLayer
-
-
 app = FastAPI()
-RoutersJSONAPI(
-    app,
+builder = ApplicationBuilder(app)
+builder.add_resource(
     # ...
-    class_detail=UserDetailView,
-    class_list=UserListView,
+    view=UserView,
     # ...
 )

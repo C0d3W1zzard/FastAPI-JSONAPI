@@ -26,7 +26,7 @@ class BaseDataLayer:
         model: Type[TypeModel],
         schema: Type[TypeSchema],
         resource_type: str,
-        url_id_field: str,
+        url_id_field: str = "id",
         disable_collection_count: bool = False,
         default_collection_count: int = -1,
         **kwargs,

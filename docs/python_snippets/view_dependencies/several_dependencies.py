@@ -3,9 +3,8 @@ from typing import ClassVar
 from fastapi import Depends
 from pydantic import BaseModel
 
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
-from fastapi_jsonapi.views.view_base import ViewBase
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
+from fastapi_jsonapi.views import ViewBase, Operation, OperationConfig
 
 
 def one():
@@ -36,13 +35,13 @@ def get_handler(view: ViewBase, dto: DependencyMix):
     return {"key_2": dto.key_2}
 
 
-class DetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class View(ViewBaseGeneric):
+    operation_dependencies: ClassVar = {
+        Operation.ALL: OperationConfig(
             dependencies=CommonDependency,
             prepare_data_layer_kwargs=common_handler,
         ),
-        HTTPMethod.GET: HTTPMethodConfig(
+        Operation.GET: OperationConfig(
             dependencies=GetDependency,
             prepare_data_layer_kwargs=get_handler,
         ),
