@@ -2,16 +2,20 @@ from collections import defaultdict
 from typing import Any, Literal, Optional, Type
 
 from fastapi_jsonapi.data_typing import TypeSchema
-from fastapi_jsonapi.models_storage import models_storage
-from fastapi_jsonapi.schema import JSONAPIObjectSchemas, get_schema_from_field_annotation
+from fastapi_jsonapi.exceptions import InternalServerError
+from fastapi_jsonapi.schema import JSONAPIObjectSchemas
 from fastapi_jsonapi.types_metadata.relationship_info import RelationshipInfo
 
 
 class SchemasStorage:
     def __init__(self):
-        self._data = {}
-        self._registered_schemas = set()
-        self._jsonapi_object_schemas = {}
+        self._data: dict = {}
+        self._source_schemas: dict[str, Type[TypeSchema]] = {}
+        self._jsonapi_object_schemas: dict[tuple[Type[TypeSchema], str], JSONAPIObjectSchemas] = {}
+        self._schema_in_keys: dict[str, str] = {
+            "create": "schema_in_create",
+            "update": "schema_in_update",
+        }
 
     def _init_resource_if_needed(self, resource_type: str):
         if resource_type not in self._data:
@@ -58,6 +62,7 @@ class SchemasStorage:
         field_schemas: dict[str, Type[TypeSchema]],
         relationships_info: dict[str, tuple[RelationshipInfo, Any]],
         model_validators: dict,
+        schema_in: Optional[Type[TypeSchema]] = None,
     ):
         self._init_resource_if_needed(resource_type)
         if operation_type in self._data[resource_type]:
@@ -70,6 +75,7 @@ class SchemasStorage:
             else:
                 after_validators[validator_name] = validator
 
+        self._source_schemas[resource_type] = source_schema
         self._data[resource_type][operation_type] = {
             "attrs_schema": attributes_schema,
             "field_schemas": field_schemas,
@@ -77,46 +83,28 @@ class SchemasStorage:
             "relationships_info": {
                 relationship_name: info for relationship_name, (info, _) in relationships_info.items()
             },
+            "relationships_pydantic_fields": {
+                relationship_name: field for relationship_name, (_, field) in relationships_info.items()
+            },
             "model_validators": (before_validators, after_validators),
         }
-        self._registered_schemas.add((source_schema, resource_type, operation_type))
-        model = models_storage.get_model(resource_type)
 
-        # User can have relationship resources without having CRUD operations for these resource types.
-        # So the SchemaStorage will not be filled with schemas without passing through the relationships.
-        for relationship_name, (info, field) in relationships_info.items():
-            relationship_source_schema = get_schema_from_field_annotation(field)
+        if schema_in:
+            self._data[resource_type][operation_type][self._schema_in_keys[operation_type]] = schema_in
 
-            if (relationship_source_schema, info.resource_type, "get") in self._registered_schemas:
-                continue
+    def get_source_schema(self, resource_type: str):
+        try:
+            return self._source_schemas[resource_type]
+        except KeyError:
+            raise InternalServerError(detail=f"Not found source schema for resource type {resource_type!r}")
 
-            relationship_model = models_storage.search_relationship_model(resource_type, model, relationship_name)
-            models_storage.add_model(info.resource_type, relationship_model, info.id_field_name)
-
-            dto = builder._get_info_from_schema_for_building(
-                base_name=f"{info.resource_type}_hidden_generation",
-                schema=relationship_source_schema,
-                operation_type="get",
-            )
-            data_schema = builder._build_jsonapi_object(
-                base_name=f"{info.resource_type}_hidden_generation_ObjectJSONAPI",
-                resource_type=info.resource_type,
-                dto=dto,
-                with_relationships=False,
-                id_field_required=True,
-            )
-
-            self.add_resource(
-                builder,
-                resource_type=info.resource_type,
-                operation_type="get",
-                source_schema=relationship_source_schema,
-                data_schema=data_schema,
-                attributes_schema=dto.attributes_schema,
-                field_schemas=dto.field_schemas,
-                relationships_info=dto.relationships_info,
-                model_validators=dto.model_validators,
-            )
+    def get_source_relationship_pydantic_field(
+        self,
+        resource_type: str,
+        operation_type: Literal["create", "update", "get"],
+        field_name: str,
+    ):
+        return self._data[resource_type][operation_type]["relationships_pydantic_fields"][field_name]
 
     def get_data_schema(
         self,
@@ -140,6 +128,18 @@ class SchemasStorage:
     ) -> Optional[TypeSchema]:
         return self._data[resource_type][operation_type]["field_schemas"].get(field_name)
 
+    def get_schema_in(
+        self,
+        resource_type: str,
+        operation_type: Literal["create", "update"],
+    ) -> Type[TypeSchema]:
+        try:
+            return self._data[resource_type][operation_type][self._schema_in_keys[operation_type]]
+        except KeyError:
+            raise InternalServerError(
+                detail=f"Not found schema for operation {operation_type!r} with resource type {resource_type!r}",
+            )
+
     def get_model_validators(
         self,
         resource_type: str,
@@ -147,13 +147,20 @@ class SchemasStorage:
     ) -> tuple[dict, dict]:
         return self._data[resource_type][operation_type]["model_validators"]
 
-    def get_relationship(
+    def get_relationship_info(
         self,
         resource_type: str,
         operation_type: Literal["create", "update", "get"],
         field_name: str,
     ) -> Optional[RelationshipInfo]:
         return self._data[resource_type][operation_type]["relationships_info"].get(field_name)
+
+    def get_relationships_info(
+        self,
+        resource_type: str,
+        operation_type: Literal["create", "update", "get"],
+    ) -> dict[str, RelationshipInfo]:
+        return self._data[resource_type][operation_type]["relationships_info"]
 
     def get_jsonapi_object_schema(
         self,
@@ -166,9 +173,19 @@ class SchemasStorage:
         self,
         source_schema: Type[TypeSchema],
         resource_type: str,
-        jsonapi_object_schema,
+        jsonapi_object_schema: Type[TypeSchema],
     ):
         self._jsonapi_object_schemas[(source_schema, resource_type)] = jsonapi_object_schema
+
+    def has_resource(self, resource_type: str) -> bool:
+        return resource_type in self._source_schemas
+
+    def has_operation(
+        self,
+        resource_type: str,
+        operation_type: Literal["create", "update", "get"],
+    ) -> bool:
+        return self.has_resource(resource_type) and operation_type in self._data[resource_type]
 
 
 schemas_storage = SchemasStorage()

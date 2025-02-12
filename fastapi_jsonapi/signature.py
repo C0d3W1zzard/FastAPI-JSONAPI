@@ -3,7 +3,7 @@
 import inspect
 import logging
 from enum import Enum
-from inspect import Parameter
+from inspect import Parameter, Signature
 from typing import Any, Optional, Type, Union, get_args, get_origin
 
 from fastapi import Query
@@ -16,6 +16,7 @@ from fastapi.types import UnionType
 from pydantic.fields import FieldInfo
 
 from fastapi_jsonapi.common import get_relationship_info_from_field_metadata
+from fastapi_jsonapi.data_typing import TypeSchema
 from fastapi_jsonapi.schema_base import BaseModel
 
 log = logging.getLogger(__name__)
@@ -97,3 +98,40 @@ def create_additional_query_params(schema: type[BaseModel]) -> tuple[list[Parame
         )
         include_params.append(include_param)
     return filter_params, include_params
+
+
+def create_dependency_params_from_pydantic_model(
+    model_class: Type[TypeSchema],
+) -> list[Parameter]:
+    return [
+        Parameter(
+            name=field_name,
+            kind=Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=field_info.annotation,
+            default=field_info.default,
+        )
+        for field_name, field_info in model_class.model_fields.items()
+    ]
+
+
+def get_separated_params(sig: Signature):
+    """
+    Separate params, tail params, skip **kwargs
+
+    :param sig:
+    :return:
+    """
+    params = []
+    tail_params = []
+
+    for param in sig.parameters.values():
+        if param.kind is Parameter.VAR_KEYWORD:
+            # skip **kwargs for spec
+            continue
+
+        if param.kind is Parameter.KEYWORD_ONLY:
+            tail_params.append(param)
+        else:
+            params.append(param)
+
+    return params, tail_params

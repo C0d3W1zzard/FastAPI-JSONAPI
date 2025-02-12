@@ -28,7 +28,7 @@ from fastapi_jsonapi.schema import (
     get_schema_from_field_annotation,
 )
 from fastapi_jsonapi.schema_base import BaseModel, Field, registry
-from fastapi_jsonapi.schemas_storage import schemas_storage
+from fastapi_jsonapi.storages.schemas_storage import schemas_storage
 from fastapi_jsonapi.types_metadata import RelationshipInfo
 from fastapi_jsonapi.validation_utils import extract_validators
 
@@ -110,19 +110,25 @@ class SchemaBuilder:
     ) -> tuple[Type[BaseJSONAPIDataInSchema], Type[BaseJSONAPIItemInSchema]]:
         base_schema_name = schema_in.__name__.removesuffix("Schema") + schema_name_suffix
 
-        dto = self._get_info_from_schema_for_building(
+        dto = self.get_info_from_schema_for_building(
             base_name=base_schema_name,
             schema=schema_in,
             operation_type=operation_type,
             non_optional_relationships=non_optional_relationships,
         )
 
-        object_jsonapi_schema = self._build_jsonapi_object(
+        object_jsonapi_schema = self.build_jsonapi_object(
             base_name=base_schema_name,
             resource_type=self._resource_type,
             dto=dto,
             model_base=BaseJSONAPIItemInSchema,
             id_field_required=id_field_required,
+        )
+
+        wrapped_object_jsonapi_schema = create_model(
+            f"{base_schema_name}ObjectDataJSONAPI",
+            data=(object_jsonapi_schema, ...),
+            __base__=BaseJSONAPIDataInSchema,
         )
 
         schemas_storage.add_resource(
@@ -135,12 +141,7 @@ class SchemaBuilder:
             field_schemas=dto.field_schemas,
             relationships_info=dto.relationships_info,
             model_validators=dto.model_validators,
-        )
-
-        wrapped_object_jsonapi_schema = create_model(
-            f"{base_schema_name}ObjectDataJSONAPI",
-            data=(object_jsonapi_schema, ...),
-            __base__=BaseJSONAPIDataInSchema,
+            schema_in=wrapped_object_jsonapi_schema,
         )
 
         return wrapped_object_jsonapi_schema, object_jsonapi_schema
@@ -197,7 +198,7 @@ class SchemaBuilder:
 
         return annotation
 
-    def _get_info_from_schema_for_building(
+    def get_info_from_schema_for_building(
         self,
         base_name: str,
         schema: Type[BaseModel],
@@ -362,7 +363,7 @@ class SchemaBuilder:
         )
         return relationship_data_schema
 
-    def _build_jsonapi_object(
+    def build_jsonapi_object(
         self,
         base_name: str,
         resource_type: str,
@@ -433,18 +434,18 @@ class SchemaBuilder:
 
         base_name = base_name or schema.__name__
 
-        dto = self._get_info_from_schema_for_building(
+        dto = self.get_info_from_schema_for_building(
             base_name=base_name,
             operation_type="get",
             schema=schema,
         )
 
-        object_jsonapi_schema = self._build_jsonapi_object(
+        object_jsonapi_schema = self.build_jsonapi_object(
             base_name=base_name,
             resource_type=resource_type or self._resource_type,
             dto=dto,
         )
-        relationship_less_object_jsonapi_schema = self._build_jsonapi_object(
+        relationship_less_object_jsonapi_schema = self.build_jsonapi_object(
             base_name=base_name,
             resource_type=resource_type or self._resource_type,
             dto=dto,

@@ -22,7 +22,7 @@ from fastapi_jsonapi.data_layers.sqla.query_building import (
     prepare_relationships_info,
     relationships_info_storage,
 )
-from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
+from fastapi_jsonapi.data_typing import TypeModel
 from fastapi_jsonapi.exceptions import (
     InternalServerError,
     InvalidInclude,
@@ -30,12 +30,13 @@ from fastapi_jsonapi.exceptions import (
     RelatedObjectNotFound,
     RelationNotFound,
 )
-from fastapi_jsonapi.models_storage import models_storage
 from fastapi_jsonapi.querystring import QueryStringManager
 from fastapi_jsonapi.schema import (
     BaseJSONAPIItemInSchema,
 )
-from fastapi_jsonapi.schemas_storage import schemas_storage
+from fastapi_jsonapi.storages.models_storage import models_storage
+from fastapi_jsonapi.storages.schemas_storage import schemas_storage
+from fastapi_jsonapi.views import RelationshipRequestInfo
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +46,6 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
     def __init__(
         self,
-        schema: Type[TypeSchema],
         model: Type[TypeModel],
         session: AsyncSession,
         resource_type: str,
@@ -61,7 +61,6 @@ class SqlalchemyDataLayer(BaseDataLayer):
         """
         Initialize an instance of SqlalchemyDataLayer.
 
-        :param schema:
         :param model:
         :param disable_collection_count:
         :param default_collection_count:
@@ -73,7 +72,6 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param kwargs: initialization parameters of an SqlalchemyDataLayer instance
         """
         super().__init__(
-            schema=schema,
             model=model,
             resource_type=resource_type,
             url_id_field=url_id_field,
@@ -184,7 +182,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
             if relationship_in is None:
                 continue
 
-            relationship_info = schemas_storage.get_relationship(
+            relationship_info = schemas_storage.get_relationship_info(
                 resource_type=self.resource_type,
                 operation_type=action_trigger,
                 field_name=relation_name,
@@ -284,22 +282,49 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
         return options
 
+    def get_relationship_request_filters(
+        self,
+        model_id_field: InstrumentedAttribute,
+        parent_obj_id: Any,
+        parent_resource_type: str,
+        relationship_name: str,
+    ) -> list[BinaryExpression]:
+        parent_model = models_storage.get_model(parent_resource_type)
+        parent_id_field = models_storage.get_object_id_field(parent_resource_type)
+        parent_relationship_field = getattr(parent_model, relationship_name)
+        info = schemas_storage.get_relationship_info(
+            resource_type=parent_resource_type,
+            operation_type="get",
+            field_name=relationship_name,
+        )
+        stmt = self._base_sql.query(
+            model=self.model,
+            fields=[model_id_field],
+            select_from=parent_model,
+            filters=[parent_id_field == parent_obj_id],
+            size=None if info.many else 1,
+            join=[(self.model, parent_relationship_field)],
+        )
+        return [model_id_field.in_(stmt)]
+
     async def get_object(
         self,
         view_kwargs: dict,
         qs: Optional[QueryStringManager] = None,
+        relationship_request_info: Optional[RelationshipRequestInfo] = None,
     ) -> TypeModel:
         """
         Retrieve an object through sqlalchemy.
 
         :param view_kwargs: kwargs from the resource view
         :param qs:
+        :param relationship_request_info:
         :return DeclarativeMeta: an object from sqlalchemy
         """
         await self.before_get_object(view_kwargs)
 
-        filter_field = models_storage.get_object_id_field(self.resource_type)
-        filter_value = self.prepare_id_value(filter_field, view_kwargs[self.url_id_field])
+        model_id_field = models_storage.get_object_id_field(self.resource_type)
+        filter_value = self.prepare_id_value(model_id_field, view_kwargs[self.url_id_field])
 
         options = set()
         if qs is not None:
@@ -312,16 +337,26 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 ),
             )
 
+        if relationship_request_info is None:
+            filters = [model_id_field == filter_value]
+        else:
+            filters = self.get_relationship_request_filters(
+                model_id_field=model_id_field,
+                parent_obj_id=filter_value,
+                parent_resource_type=relationship_request_info.parent_resource_type,
+                relationship_name=relationship_request_info.relationship_name,
+            )
+
         query = self._base_sql.query(
             model=self.model,
-            filters=[filter_field == filter_value],
+            filters=filters,
             options=options,
             stmt=self._query,
         )
         obj = await self._base_sql.one_or_raise(
             session=self.session,
             model=self.model,
-            filters=[filter_field == filter_value],
+            filters=[model_id_field == filter_value],
             stmt=query,
         )
 
@@ -332,12 +367,15 @@ class SqlalchemyDataLayer(BaseDataLayer):
         self,
         qs: QueryStringManager,
         view_kwargs: Optional[dict] = None,
+        relationship_request_info: Optional[RelationshipRequestInfo] = None,
     ) -> tuple[int, list]:
         """
         Retrieve a collection of objects through sqlalchemy.
 
         :param qs: a querystring manager to retrieve information from url.
         :param view_kwargs: kwargs from the resource view.
+        :param relationship_request_info: indicates that method was called in fetch relationship request and
+                                          contains some related data
         :return: the number of object and the list of objects.
         """
         view_kwargs = view_kwargs or {}
@@ -358,10 +396,22 @@ class SqlalchemyDataLayer(BaseDataLayer):
         if self.eagerload_includes_:
             options.update(self.eagerload_includes(qs))
 
+        filters = self.get_filter_expressions(qs) or []
+        if relationship_request_info is not None:
+            model_id_field = models_storage.get_object_id_field(self.resource_type)
+            filters.extend(
+                self.get_relationship_request_filters(
+                    model_id_field=model_id_field,
+                    parent_obj_id=self.prepare_id_value(model_id_field, relationship_request_info.parent_obj_id),
+                    parent_resource_type=relationship_request_info.parent_resource_type,
+                    relationship_name=relationship_request_info.relationship_name,
+                ),
+            )
+
         query = self._base_sql.query(
             model=self.model,
-            filters=self.get_filter_expressions(qs),
-            join=relationships_info,
+            filters=filters,
+            jsonapi_join=relationships_info,
             number=qs.pagination.number,
             options=options,
             order=self.get_sort_expressions(qs),
@@ -635,7 +685,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
             current_resource_type = self.resource_type
 
             for related_field_name in include.split("."):
-                relationship_info = schemas_storage.get_relationship(
+                relationship_info = schemas_storage.get_relationship_info(
                     resource_type=current_resource_type,
                     operation_type="get",
                     field_name=related_field_name,

@@ -4,15 +4,15 @@ import logging
 from collections import defaultdict
 from contextvars import ContextVar
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Type, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, TypedDict, Union
 
 from fastapi import HTTPException, status
 from fastapi.requests import Request
 from pydantic import ValidationError
 
-from fastapi_jsonapi import RoutersJSONAPI
 from fastapi_jsonapi.atomic.prepared_atomic_operation import LocalIdsType, OperationBase
 from fastapi_jsonapi.atomic.schemas import AtomicOperation, AtomicOperationRequest, AtomicResultResponse
+from fastapi_jsonapi.storages.schemas_storage import schemas_storage
 
 if TYPE_CHECKING:
     from fastapi_jsonapi.data_layers.base import BaseDataLayer
@@ -55,7 +55,6 @@ def catch_exc_on_operation_handle(func: Callable[..., Awaitable]):
 
 
 class AtomicViewHandler:
-    jsonapi_routers_cls: Type[RoutersJSONAPI] = RoutersJSONAPI
 
     def __init__(
         self,
@@ -73,17 +72,15 @@ class AtomicViewHandler:
         :param operation:
         :return:
         """
-        operation_type = (operation.ref and operation.ref.type) or (operation.data and operation.data.type)
-        assert operation_type
-        if operation_type not in self.jsonapi_routers_cls.all_jsonapi_routers:
-            msg = f"Unknown resource type {operation_type!r}. Register it via RoutersJSONAPI"
+        resource_type = (operation.ref and operation.ref.type) or (operation.data and operation.data.type)
+        if not schemas_storage.has_resource(resource_type):
+            msg = f"Unknown resource type {resource_type!r}."
             raise ValueError(msg)
-        jsonapi = self.jsonapi_routers_cls.all_jsonapi_routers[operation_type]
 
         return OperationBase.prepare(
             action=operation.op,
             request=self.request,
-            jsonapi=jsonapi,
+            resource_type=resource_type,
             ref=operation.ref,
             data=operation.data,
         )

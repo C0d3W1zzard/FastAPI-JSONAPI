@@ -1,46 +1,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional, Type
+from inspect import Signature, signature
+from typing import Any, Callable, Optional, Type
 
 from fastapi import Request
 
-from fastapi_jsonapi import RoutersJSONAPI
 from fastapi_jsonapi.atomic.schemas import AtomicOperationAction, AtomicOperationRef, OperationDataType
-from fastapi_jsonapi.views.utils import HTTPMethod
-
-if TYPE_CHECKING:
-    from fastapi_jsonapi.data_layers.base import BaseDataLayer
-    from fastapi_jsonapi.data_typing import TypeSchema
-    from fastapi_jsonapi.views.detail_view import DetailViewBase
-    from fastapi_jsonapi.views.list_view import ListViewBase
-    from fastapi_jsonapi.views.view_base import ViewBase
+from fastapi_jsonapi.data_layers.base import BaseDataLayer
+from fastapi_jsonapi.data_typing import TypeSchema
+from fastapi_jsonapi.signature import create_dependency_params_from_pydantic_model, get_separated_params
+from fastapi_jsonapi.storages import models_storage, schemas_storage, views_storage
+from fastapi_jsonapi.utils.dependency_helper import DependencyHelper
+from fastapi_jsonapi.views import Operation, OperationConfig, ViewBase
 
 LocalIdsType = dict[str, dict[str, str]]
+atomic_dependency_handlers: dict[(str, Operation), Callable] = {}
 
 
 @dataclass
 class OperationBase:
-    jsonapi: RoutersJSONAPI
     view: ViewBase
     ref: Optional[AtomicOperationRef]
     data: OperationDataType
     op_type: str
-
-    @property
-    def http_method(self) -> HTTPMethod:
-        raise NotImplementedError
+    resource_type: str
 
     @classmethod
     def prepare(
         cls,
         action: str,
         request: Request,
-        jsonapi: RoutersJSONAPI,
+        resource_type: str,
         ref: Optional[AtomicOperationRef],
         data: OperationDataType,
     ) -> OperationBase:
-        view_cls: Type[ViewBase] = jsonapi.detail_view_resource
+        view_cls: Type[ViewBase] = views_storage.get_view(resource_type)
 
         if hasattr(action, "value"):
             # convert to str if enum
@@ -48,30 +43,95 @@ class OperationBase:
 
         if action == AtomicOperationAction.add:
             operation_cls = OperationAdd
-            view_cls = jsonapi.list_view_resource
+            view_operation = Operation.CREATE
         elif action == AtomicOperationAction.update:
             operation_cls = OperationUpdate
+            view_operation = Operation.UPDATE
         elif action == AtomicOperationAction.remove:
             operation_cls = OperationRemove
+            view_operation = Operation.DELETE
         else:
             msg = f"Unknown operation {action!r}"
             raise ValueError(msg)
 
-        view = view_cls(request=request, jsonapi=jsonapi)
+        view = view_cls(
+            request=request,
+            resource_type=resource_type,
+            operation=view_operation,
+            model=models_storage.get_model(resource_type),
+            schema=schemas_storage.get_source_schema(resource_type),
+        )
 
         return operation_cls(
-            jsonapi=jsonapi,
             view=view,
             ref=ref,
             data=data,
             op_type=action,
+            resource_type=resource_type,
         )
 
+    @staticmethod
+    def prepare_dependencies_handler_signature(
+        custom_handler: Callable[..., Any],
+        method_config: OperationConfig,
+    ) -> Signature:
+        sig = signature(custom_handler)
+
+        additional_dependency_params = []
+        if method_config.dependencies is not None:
+            additional_dependency_params = create_dependency_params_from_pydantic_model(
+                model_class=method_config.dependencies,
+            )
+
+        params, tail_params = get_separated_params(sig)
+
+        return sig.replace(parameters=params + list(additional_dependency_params) + tail_params)
+
+    @classmethod
+    async def handle_view_dependencies(
+        cls,
+        request: Request,
+        view_cls: Type[ViewBase],
+        resource_type: str,
+        operation: Operation,
+    ) -> dict[str, Any]:
+        """
+        Combines all dependencies (prepared) and returns them as list
+
+        Consider method config is already prepared for generic views
+        Reuse the same config for atomic operations
+
+        :param request:
+        :param view_cls:
+        :param resource_type:
+        :param operation:
+        :return:
+        """
+        handler_key = (resource_type, operation)
+
+        if handler_key in atomic_dependency_handlers:
+            handle_dependencies = atomic_dependency_handlers[handler_key]
+        else:
+            method_config: OperationConfig = view_cls.operation_dependencies[operation]
+
+            def handle_dependencies(**dep_kwargs):
+                return dep_kwargs
+
+            handle_dependencies.__signature__ = cls.prepare_dependencies_handler_signature(
+                custom_handler=handle_dependencies,
+                method_config=method_config,
+            )
+            atomic_dependency_handlers[handler_key] = handle_dependencies
+
+        dep_helper = DependencyHelper(request=request)
+        return await dep_helper.run(handle_dependencies)
+
     async def get_data_layer(self) -> BaseDataLayer:
-        data_layer_view_dependencies: dict[str, Any] = await self.jsonapi.handle_view_dependencies(
+        data_layer_view_dependencies: dict[str, Any] = await self.handle_view_dependencies(
             request=self.view.request,
             view_cls=self.view.__class__,
-            method=self.http_method,
+            resource_type=self.resource_type,
+            operation=self.view.operation,
         )
         return await self.view.get_data_layer(data_layer_view_dependencies)
 
@@ -126,32 +186,23 @@ class OperationBase:
                 raise ValueError(msg)
 
 
-class ListOperationBase(OperationBase):
-    view: ListViewBase
+class OperationAdd(OperationBase):
 
-
-class DetailOperationBase(OperationBase):
-    view: DetailViewBase
-
-
-class OperationAdd(ListOperationBase):
-    http_method = HTTPMethod.POST
-
-    async def handle(self, dl: BaseDataLayer) -> TypeSchema:
+    async def handle(self, dl: BaseDataLayer) -> dict:
         # use outer schema wrapper because we need this error path:
         # `{'loc': ['data', 'attributes', 'name']`
         # and not `{'loc': ['attributes', 'name']`
-        data_in = self.jsonapi.schema_in_post(data=self.data.model_dump(exclude_unset=True))
+        schema_in_create = schemas_storage.get_schema_in(self.resource_type, operation_type="create")
+        data_in = schema_in_create(data=self.data.model_dump(exclude_unset=True))
         return await self.view.process_create_object(
             dl=dl,
             data_create=data_in.data,
         )
 
 
-class OperationUpdate(DetailOperationBase):
-    http_method = HTTPMethod.PATCH
+class OperationUpdate(OperationBase):
 
-    async def handle(self, dl: BaseDataLayer) -> TypeSchema:
+    async def handle(self, dl: BaseDataLayer) -> dict:
         if self.data is None:
             # TODO: clear to-one relationships
             pass
@@ -160,7 +211,8 @@ class OperationUpdate(DetailOperationBase):
         # use outer schema wrapper because we need this error path:
         # `{'loc': ['data', 'attributes', 'name']`
         # and not `{'loc': ['attributes', 'name']`
-        data_in = self.jsonapi.schema_in_patch(data=self.data.model_dump(exclude_unset=True))
+        schema_in_update = schemas_storage.get_schema_in(self.resource_type, operation_type="create")
+        data_in = schema_in_update(data=self.data.model_dump(exclude_unset=True))
         obj_id = (self.ref and self.ref.id) or (self.data and self.data.id)
         return await self.view.process_update_object(
             dl=dl,
@@ -169,8 +221,7 @@ class OperationUpdate(DetailOperationBase):
         )
 
 
-class OperationRemove(DetailOperationBase):
-    http_method = HTTPMethod.DELETE
+class OperationRemove(OperationBase):
 
     async def handle(
         self,

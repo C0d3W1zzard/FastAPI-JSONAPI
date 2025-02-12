@@ -7,15 +7,17 @@ from fastapi import Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel as PydanticBaseModel
 
-from fastapi_jsonapi import QueryStringManager, RoutersJSONAPI
 from fastapi_jsonapi.common import get_relationship_info_from_field_metadata
 from fastapi_jsonapi.data_layers.base import BaseDataLayer
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
-from fastapi_jsonapi.models_storage import models_storage
+from fastapi_jsonapi.exceptions import BadRequest
+from fastapi_jsonapi.querystring import QueryStringManager
+from fastapi_jsonapi.schema import BaseJSONAPIItemInSchema
 from fastapi_jsonapi.schema_base import BaseModel
-from fastapi_jsonapi.schemas_storage import schemas_storage
+from fastapi_jsonapi.storages.models_storage import models_storage
+from fastapi_jsonapi.storages.schemas_storage import schemas_storage
 from fastapi_jsonapi.types_metadata import RelationshipInfo
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
+from fastapi_jsonapi.views import Operation, OperationConfig, RelationshipRequestInfo
 
 logger = logging.getLogger(__name__)
 
@@ -26,30 +28,28 @@ class ViewBase:
     """
 
     data_layer_cls = BaseDataLayer
-    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {}
+    operation_dependencies: ClassVar[dict[Operation, OperationConfig]] = {}
 
-    def __init__(self, *, request: Request, jsonapi: RoutersJSONAPI, **options):
+    def __init__(
+        self,
+        *,
+        request: Request,
+        resource_type: str,
+        operation: Operation,
+        model: Type[TypeModel],
+        schema: Type[TypeSchema],
+        **options,
+    ):
         self.request: Request = request
-        self.jsonapi: RoutersJSONAPI = jsonapi
+        self.query_params: QueryStringManager
+        self.resource_type: str = resource_type
+        self.operation: Operation = operation
+        self.model: Type[TypeModel] = model
+        self.schema: Type[TypeSchema] = schema
         self.options: dict = options
         self.query_params: QueryStringManager = QueryStringManager(request=request)
 
-    def _get_data_layer(self, schema: Type[BaseModel], **dl_kwargs):
-        return self.data_layer_cls(
-            request=self.request,
-            schema=schema,
-            model=self.jsonapi.model,
-            resource_type=self.jsonapi.type_,
-            **dl_kwargs,
-        )
-
     async def get_data_layer(
-        self,
-        extra_view_deps: dict[str, Any],
-    ) -> BaseDataLayer:
-        raise NotImplementedError
-
-    async def get_data_layer_for_detail(
         self,
         extra_view_deps: dict[str, Any],
     ) -> BaseDataLayer:
@@ -60,26 +60,145 @@ class ViewBase:
         :return:
         """
         dl_kwargs = await self.handle_endpoint_dependencies(extra_view_deps)
-        return self._get_data_layer(
-            schema=self.jsonapi.schema_detail,
+        return self.data_layer_cls(
+            request=self.request,
+            model=self.model,
+            schema=self.schema,
+            resource_type=self.resource_type,
             **dl_kwargs,
         )
 
-    async def get_data_layer_for_list(
+    async def handle_get_resource_detail(
         self,
-        extra_view_deps: dict[str, Any],
-    ) -> BaseDataLayer:
-        """
-        Prepares data layer for list view
+        obj_id: str,
+        **extra_view_deps,
+    ) -> dict:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
 
-        :param extra_view_deps:
-        :return:
-        """
-        dl_kwargs = await self.handle_endpoint_dependencies(extra_view_deps)
-        return self._get_data_layer(
-            schema=self.jsonapi.schema_list,
-            **dl_kwargs,
+        view_kwargs = {dl.url_id_field: obj_id}
+        db_object = await dl.get_object(view_kwargs=view_kwargs, qs=self.query_params)
+
+        return self._build_detail_response(db_object)
+
+    async def handle_get_resource_relationship(
+        self,
+        obj_id: str,
+        relationship_name: str,
+        parent_resource_type: str,
+        **extra_view_deps,
+    ) -> dict:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
+        view_kwargs = {dl.url_id_field: obj_id}
+        db_object = await dl.get_object(
+            view_kwargs=view_kwargs,
+            qs=self.query_params,
+            relationship_request_info=RelationshipRequestInfo(
+                parent_resource_type=parent_resource_type,
+                parent_obj_id=obj_id,
+                relationship_name=relationship_name,
+            ),
         )
+        return self._build_detail_response(db_object)
+
+    async def handle_get_resource_relationship_list(
+        self,
+        obj_id: str,
+        relationship_name: str,
+        parent_resource_type: str,
+        **extra_view_deps,
+    ) -> dict:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
+        count, items_from_db = await dl.get_collection(
+            qs=self.query_params,
+            relationship_request_info=RelationshipRequestInfo(
+                parent_resource_type=parent_resource_type,
+                parent_obj_id=obj_id,
+                relationship_name=relationship_name,
+            ),
+        )
+        total_pages = self._calculate_total_pages(count)
+        return self._build_list_response(items_from_db, count, total_pages)
+
+    async def handle_update_resource(
+        self,
+        obj_id: str,
+        data_update: BaseJSONAPIItemInSchema,
+        **extra_view_deps,
+    ) -> dict:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
+        return await self.process_update_object(dl=dl, obj_id=obj_id, data_update=data_update)
+
+    async def process_update_object(
+        self,
+        dl: BaseDataLayer,
+        obj_id: str,
+        data_update: BaseJSONAPIItemInSchema,
+    ) -> dict:
+        if obj_id != data_update.id:
+            raise BadRequest(
+                detail="obj_id and data.id should be same.",
+                pointer="/data/id",
+            )
+        view_kwargs = {
+            dl.url_id_field: obj_id,
+            "required_to_load": data_update.attributes.model_fields.keys(),
+        }
+        db_object = await dl.get_object(view_kwargs=view_kwargs, qs=self.query_params)
+
+        await dl.update_object(db_object, data_update, view_kwargs)
+
+        return self._build_detail_response(db_object)
+
+    async def handle_delete_resource(
+        self,
+        obj_id: str,
+        **extra_view_deps,
+    ) -> None:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
+        await self.process_delete_object(dl=dl, obj_id=obj_id)
+
+    async def process_delete_object(
+        self,
+        dl: BaseDataLayer,
+        obj_id: str,
+    ) -> None:
+        view_kwargs = {dl.url_id_field: obj_id}
+        db_object = await dl.get_object(view_kwargs=view_kwargs, qs=self.query_params)
+
+        await dl.delete_object(db_object, view_kwargs)
+
+    async def handle_get_resource_list(self, **extra_view_deps) -> dict:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
+        count, items_from_db = await dl.get_collection(qs=self.query_params)
+        total_pages = self._calculate_total_pages(count)
+
+        return self._build_list_response(items_from_db, count, total_pages)
+
+    async def handle_post_resource_list(
+        self,
+        data_create: BaseJSONAPIItemInSchema,
+        **extra_view_deps,
+    ) -> dict:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
+        return await self.process_create_object(dl=dl, data_create=data_create)
+
+    async def process_create_object(self, dl: BaseDataLayer, data_create: BaseJSONAPIItemInSchema) -> dict:
+        db_object = await dl.create_object(data_create=data_create, view_kwargs={})
+
+        view_kwargs = {dl.url_id_field: models_storage.get_object_id(db_object, self.resource_type)}
+        if self.query_params.include:
+            db_object = await dl.get_object(view_kwargs=view_kwargs, qs=self.query_params)
+
+        return self._build_detail_response(db_object)
+
+    async def handle_delete_resource_list(self, **extra_view_deps) -> dict:
+        dl: BaseDataLayer = await self.get_data_layer(extra_view_deps)
+        count, items_from_db = await dl.get_collection(qs=self.query_params)
+        total_pages = self._calculate_total_pages(count)
+
+        await dl.delete_objects(items_from_db, {})
+
+        return self._build_list_response(items_from_db, count, total_pages)
 
     async def _run_handler(
         self,
@@ -95,18 +214,18 @@ class ViewBase:
 
     async def _handle_config(
         self,
-        method_config: HTTPMethodConfig,
+        config: OperationConfig,
         extra_view_deps: dict[str, Any],
     ) -> dict[str, Any]:
-        if method_config.handler is None:
+        if config.handler is None:
             return {}
 
-        if method_config.dependencies:
-            dto_class: Type[PydanticBaseModel] = method_config.dependencies
+        if config.dependencies:
+            dto_class: Type[PydanticBaseModel] = config.dependencies
             dto = dto_class(**extra_view_deps)
-            return await self._run_handler(method_config.handler, dto)
+            return await self._run_handler(config.handler, dto)
 
-        return await self._run_handler(method_config.handler)
+        return await self._run_handler(config.handler)
 
     async def handle_endpoint_dependencies(
         self,
@@ -116,16 +235,24 @@ class ViewBase:
         :return dict: this is **kwargs for DataLayer.__init___
         """
         dl_kwargs = {}
-        if common_method_config := self.method_dependencies.get(HTTPMethod.ALL):
+        if common_method_config := self.operation_dependencies.get(Operation.ALL):
             dl_kwargs.update(await self._handle_config(common_method_config, extra_view_deps))
 
-        if self.request.method not in HTTPMethod.names():
-            return dl_kwargs
-
-        if method_config := self.method_dependencies.get(HTTPMethod[self.request.method]):
+        if method_config := self.operation_dependencies.get(self.operation):
             dl_kwargs.update(await self._handle_config(method_config, extra_view_deps))
 
         return dl_kwargs
+
+    def _calculate_total_pages(self, db_items_count: int) -> int:
+        total_pages = 1
+        if not (pagination_size := self.query_params.pagination.size):
+            return total_pages
+
+        return db_items_count // pagination_size + (
+            # one more page if not a multiple of size
+            (db_items_count % pagination_size)
+            and 1
+        )
 
     @classmethod
     def _prepare_item_data(
@@ -206,7 +333,7 @@ class ViewBase:
 
             for path in include_paths:
                 target_relationship, *include_path = path
-                info: RelationshipInfo = schemas_storage.get_relationship(
+                info: RelationshipInfo = schemas_storage.get_relationship_info(
                     resource_type=resource_type,
                     operation_type="get",
                     field_name=target_relationship,
@@ -298,7 +425,7 @@ class ViewBase:
 
     def _build_detail_response(self, db_item: TypeModel) -> dict:
         include_fields = self._get_include_fields()
-        item_data = self._prepare_item_data(db_item, self.jsonapi.type_, include_fields)
+        item_data = self._prepare_item_data(db_item, self.resource_type, include_fields)
         response = {
             "data": item_data,
             "jsonapi": {"version": "1.0"},
@@ -310,7 +437,7 @@ class ViewBase:
                 db_items=[db_item],
                 items_data=[item_data],
                 include_paths=self._prepare_include_params(),
-                resource_type=self.jsonapi.type_,
+                resource_type=self.resource_type,
                 include_fields=include_fields,
             )
             response["included"] = [value for _, value in sorted(included.items(), key=lambda item: item[0])]
@@ -325,7 +452,7 @@ class ViewBase:
     ) -> dict:
         include_fields = self._get_include_fields()
         items_data = [
-            self._prepare_item_data(db_item, self.jsonapi.type_, include_fields) for db_item in items_from_db
+            self._prepare_item_data(db_item, self.resource_type, include_fields) for db_item in items_from_db
         ]
         response = {
             "data": items_data,
@@ -337,7 +464,7 @@ class ViewBase:
             included = self._process_includes(
                 db_items=items_from_db,
                 items_data=items_data,
-                resource_type=self.jsonapi.type_,
+                resource_type=self.resource_type,
                 include_paths=self._prepare_include_params(),
                 include_fields=include_fields,
             )

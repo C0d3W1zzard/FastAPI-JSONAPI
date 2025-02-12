@@ -1,6 +1,5 @@
 import logging
 from collections import defaultdict
-from contextlib import suppress
 from datetime import datetime, timezone
 from itertools import chain
 from typing import Annotated, Literal
@@ -28,7 +27,6 @@ from examples.api_for_sqlalchemy.schemas import (
     UserPatchSchema,
     UserSchema,
 )
-from fastapi_jsonapi.api import RoutersJSONAPI
 from fastapi_jsonapi.data_layers.sqla import query_building as query_building_module
 from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.types_metadata.custom_filter_sql import sql_filter_lower_equals
@@ -71,7 +69,7 @@ async def test_root(client: AsyncClient):
 async def test_get_users(app: FastAPI, client: AsyncClient, user_1: User, user_2: User):
     url = app.url_path_for("get_user_list")
     response = await client.get(url)
-    assert response.status_code == status.HTTP_200_OK
+    assert response.status_code == status.HTTP_200_OK, response.text
     response_data = response.json()
     assert "data" in response_data, response_data
     users_data = response_data["data"]
@@ -812,6 +810,126 @@ class TestGetUserDetail:
             },
             "jsonapi": {"version": "1.0"},
             "meta": None,
+        }
+
+
+class TestUserFetchRelationships:
+    @staticmethod
+    def get_url(
+        app: FastAPI,
+        user_id: int,
+        relationship_name: str,
+        many: bool = False,
+    ) -> str:
+        suffix = "list" if many else "detail"
+        return app.url_path_for(f"fetch_user_{relationship_name}_{suffix}", obj_id=user_id)
+
+    async def test_fetch_to_one_relationship(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        user_1: User,
+        user_1_bio: UserBio,
+    ):
+        url = self.get_url(app, user_1.id, "bio")
+
+        response = await client.get(url)
+        assert response.status_code == status.HTTP_200_OK, response.text
+        assert response.json() == {
+            "data": {
+                "attributes": UserBioAttributesBaseSchema.from_orm(user_1_bio).model_dump(),
+                "id": str(user_1_bio.id),
+                "type": "user_bio",
+            },
+            "jsonapi": {"version": "1.0"},
+            "meta": None,
+        }
+
+    async def test_fetch_to_one_relationship_with_include(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        user_1: User,
+        user_1_bio: UserBio,
+    ):
+        url = self.get_url(app, user_1.id, "bio")
+        params = QueryParams([("include", "user")])
+
+        response = await client.get(url, params=params)
+        assert response.status_code == status.HTTP_200_OK, response.text
+        assert response.json() == {
+            "data": {
+                "attributes": UserBioAttributesBaseSchema.from_orm(user_1_bio).model_dump(),
+                "id": f"{user_1_bio.id}",
+                "type": "user_bio",
+                "relationships": {"user": {"data": {"id": f"{user_1.id}", "type": "user"}}},
+            },
+            "jsonapi": {"version": "1.0"},
+            "meta": None,
+            "included": [
+                {
+                    "attributes": UserAttributesBaseSchema.from_orm(user_1).model_dump(),
+                    "id": f"{user_1.id}",
+                    "type": "user",
+                },
+            ],
+        }
+
+    async def test_fetch_to_many_relationship(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        user_1: User,
+        user_1_posts: list[Post],
+    ):
+        url = self.get_url(app, user_1.id, "posts", many=True)
+
+        response = await client.get(url)
+        assert response.status_code == status.HTTP_200_OK, response.text
+        assert response.json() == {
+            "data": [
+                {
+                    "id": f"{post.id}",
+                    "type": "post",
+                    "attributes": PostAttributesBaseSchema.from_orm(post).model_dump(),
+                }
+                for post in sorted(user_1_posts, key=lambda post: post.id)
+            ],
+            "jsonapi": {"version": "1.0"},
+            "meta": {"count": len(user_1_posts), "totalPages": 1},
+        }
+
+    async def test_fetch_to_many_relationship_with_include(
+        self,
+        app: FastAPI,
+        client: AsyncClient,
+        user_1: User,
+        user_1_posts: list[Post],
+    ):
+        url = self.get_url(app, user_1.id, "posts", many=True)
+        params = QueryParams([("include", "user")])
+
+        response = await client.get(url, params=params)
+        assert response.status_code == status.HTTP_200_OK, response.text
+        assert response.json() == {
+            "data": [
+                {
+                    "id": f"{post.id}",
+                    "type": "post",
+                    "attributes": PostAttributesBaseSchema.from_orm(post).model_dump(),
+                    "relationships": {"user": {"data": {"id": f"{user_1.id}", "type": "user"}}},
+                }
+                for post in sorted(user_1_posts, key=lambda post: post.id)
+            ],
+            "jsonapi": {"version": "1.0"},
+            "meta": {"count": len(user_1_posts), "totalPages": 1},
+            "included": [
+                {
+                    "attributes": UserAttributesBaseSchema.from_orm(user_1).model_dump(),
+                    "id": f"{user_1.id}",
+                    "type": "user",
+                },
+            ],
         }
 
 
@@ -1697,8 +1815,6 @@ class TestPatchObjects:
         # clear_schemas_storage,
     ):
         resource_type = "cascade_case"
-        with suppress(KeyError):
-            RoutersJSONAPI.all_jsonapi_routers.pop(resource_type)
 
         app = build_app_custom(
             model=CascadeCase,
@@ -1992,8 +2108,6 @@ class TestPatchObjectRelationshipsToOne:
 
     async def test_remove_to_one_relationship_using_by_update(self, async_session: AsyncSession):
         resource_type = "self_relationship"
-        with suppress(KeyError):
-            RoutersJSONAPI.all_jsonapi_routers.pop(resource_type)
 
         app = build_app_custom(
             model=SelfRelationship,
@@ -2231,8 +2345,6 @@ class TestPatchRelationshipsToMany:
 
     async def test_remove_to_many_relationship_using_by_update(self, async_session: AsyncSession):
         resource_type = "self_relationship"
-        with suppress(KeyError):
-            RoutersJSONAPI.all_jsonapi_routers.pop(resource_type)
 
         app = build_app_custom(
             model=SelfRelationship,
@@ -2410,8 +2522,6 @@ class TestDeleteObjects:
 
     async def test_cascade_delete(self, async_session: AsyncSession):
         resource_type = "cascade_case"
-        with suppress(KeyError):
-            RoutersJSONAPI.all_jsonapi_routers.pop(resource_type)
 
         app = build_app_custom(
             model=CascadeCase,
@@ -3580,8 +3690,6 @@ class TestSorts:
         boris_position: int,
     ):
         resource_type = "test_register_free_sort"
-        with suppress(KeyError):
-            RoutersJSONAPI.all_jsonapi_routers.pop(resource_type)
 
         # lexicographic order: Anton, Boris, anton
         await create_user(async_session, name="Anton")

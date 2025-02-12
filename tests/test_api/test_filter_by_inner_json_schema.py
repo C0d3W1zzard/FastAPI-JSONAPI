@@ -1,31 +1,19 @@
 from typing import ClassVar
 
 import orjson as json
-import pytest
 from fastapi import FastAPI, status
 from httpx import AsyncClient
 
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
+from fastapi_jsonapi.views import Operation, OperationConfig
 from tests.common import is_postgres_tests
 from tests.fixtures.models import Task
 from tests.fixtures.views import SessionDependency, common_handler
 
-pytestmark = pytest.mark.asyncio
 
-
-class TaskJsonListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=common_handler,
-        ),
-    }
-
-
-class TaskJsonDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class TaskJsonView(ViewBaseGeneric):
+    operation_dependencies: ClassVar[dict[Operation, OperationConfig]] = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
         ),

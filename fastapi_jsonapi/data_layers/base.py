@@ -14,6 +14,7 @@ from fastapi_jsonapi.common import search_client_can_set_id
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.querystring import QueryStringManager
 from fastapi_jsonapi.schema import BaseJSONAPIItemInSchema
+from fastapi_jsonapi.views import RelationshipRequestInfo
 
 
 class BaseDataLayer:
@@ -22,8 +23,8 @@ class BaseDataLayer:
     def __init__(
         self,
         request: Request,
-        schema: Type[TypeSchema],
         model: Type[TypeModel],
+        schema: Type[TypeSchema],
         resource_type: str,
         url_id_field: str,
         disable_collection_count: bool = False,
@@ -42,11 +43,11 @@ class BaseDataLayer:
         :param resource_type: resource type
         :param kwargs:
         """
-        self.request = request
-        self.schema = schema
-        self.model = model
-        self.resource_type = resource_type
-        self.url_id_field = url_id_field
+        self.request: Request = request
+        self.schema: Type[TypeSchema] = schema
+        self.model: Type[TypeModel] = model
+        self.resource_type: str = resource_type
+        self.url_id_field: str = url_id_field
         self.disable_collection_count: bool = disable_collection_count
         self.default_collection_count: int = default_collection_count
         self.is_atomic = False
@@ -91,22 +92,34 @@ class BaseDataLayer:
         """
         raise NotImplementedError
 
-    async def get_object(self, view_kwargs: dict, qs: Optional[QueryStringManager] = None) -> TypeModel:
+    async def get_object(
+        self,
+        view_kwargs: dict,
+        qs: Optional[QueryStringManager] = None,
+        relationship_request_info: Optional[RelationshipRequestInfo] = None,
+    ) -> TypeModel:
         """
         Retrieve an object
 
         :param view_kwargs: kwargs from the resource view
         :param qs:
+        :param relationship_request_info:
         :return DeclarativeMeta: an object
         """
         raise NotImplementedError
 
-    async def get_collection(self, qs: QueryStringManager, view_kwargs: Optional[dict] = None) -> tuple[int, list]:
+    async def get_collection(
+        self,
+        qs: QueryStringManager,
+        view_kwargs: Optional[dict] = None,
+        relationship_request_info: Optional[RelationshipRequestInfo] = None,
+    ) -> tuple[int, list]:
         """
         Retrieve a collection of objects
 
         :param qs: a querystring manager to retrieve information from url
         :param view_kwargs: kwargs from the resource view
+        :param relationship_request_info:
         :return tuple: the number of object and the list of objects
         """
         raise NotImplementedError

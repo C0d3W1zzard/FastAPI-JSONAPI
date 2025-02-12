@@ -9,6 +9,7 @@ from httpx import AsyncClient
 from pytest import fixture  # noqa PT013
 from pytest_asyncio import fixture as async_fixture
 
+from fastapi_jsonapi.atomic.prepared_atomic_operation import atomic_dependency_handlers
 from fastapi_jsonapi.data_layers.sqla.query_building import relationships_info_storage
 from tests.fixtures.app import (  # noqa
     app,
@@ -55,10 +56,7 @@ from tests.fixtures.user import (  # noqa
     user_attributes,
     user_attributes_factory,
 )
-from tests.fixtures.views import (  # noqa
-    DetailViewBaseGeneric,
-    ListViewBaseGeneric,
-)
+from tests.fixtures.views import ViewBaseGeneric  # noqa
 
 
 def configure_logging():
@@ -96,3 +94,8 @@ def clear_relationships_info_storage():
     relationships_info_storage._data = defaultdict(dict)
     yield
     relationships_info_storage._data = data
+
+
+@pytest.fixture(autouse=True)
+def clear_atomic_dependency_handlers():
+    atomic_dependency_handlers.clear()

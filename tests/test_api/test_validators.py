@@ -10,8 +10,7 @@ from pytest_asyncio import fixture
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from examples.api_for_sqlalchemy.models import User
-from fastapi_jsonapi import RoutersJSONAPI
-from fastapi_jsonapi.schemas_storage import schemas_storage
+from fastapi_jsonapi.storages.schemas_storage import schemas_storage
 from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.validation_utils import extract_validators
 from tests.common import is_postgres_tests
@@ -167,12 +166,8 @@ class TestValidators:
 
     @fixture(autouse=True)
     def _refresh_caches(self) -> Generator:
-        all_jsonapi_routers = copy(RoutersJSONAPI.all_jsonapi_routers)
         schemas_data = copy(schemas_storage._data)
-
         yield
-
-        RoutersJSONAPI.all_jsonapi_routers = all_jsonapi_routers
         schemas_storage._data = schemas_data
 
     def build_app(self, schema, resource_type: Optional[str] = None) -> FastAPI:

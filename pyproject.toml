@@ -115,6 +115,13 @@ sqla = ["sqlalchemy"]
 databases = ["sqlalchemy"]
 uvicorn = ["uvicorn"]
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning"
+]
+asyncio_mode = "auto"
+
 [tool.black]
 line-length = 119
 target-version = ["py38"]

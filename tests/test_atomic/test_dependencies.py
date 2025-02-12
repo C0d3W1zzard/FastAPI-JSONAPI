@@ -12,8 +12,8 @@ from examples.api_for_sqlalchemy.schemas import (
     UserPatchSchema,
     UserSchema,
 )
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
+from fastapi_jsonapi.views import Operation, OperationConfig
 from tests.fixtures.app import build_app_custom
 from tests.fixtures.views import ArbitraryModelBase, SessionDependency, common_handler
 from tests.misc.utils import fake
@@ -52,28 +52,19 @@ class UserDeleteCustomDependency(ArbitraryModelBase):
     dep: CustomDependencyForDelete = Depends()
 
 
-class UserCustomListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class UserCustomView(ViewBaseGeneric):
+    operation_dependencies: ClassVar[dict[Operation, OperationConfig]] = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
         ),
-        HTTPMethod.POST: HTTPMethodConfig(
+        Operation.CREATE: OperationConfig(
             dependencies=UserCreateCustomDependency,
         ),
-    }
-
-
-class UserCustomDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=common_handler,
-        ),
-        HTTPMethod.PATCH: HTTPMethodConfig(
+        Operation.UPDATE: OperationConfig(
             dependencies=UserUpdateCustomDependency,
         ),
-        HTTPMethod.DELETE: HTTPMethodConfig(
+        Operation.DELETE: OperationConfig(
             dependencies=UserDeleteCustomDependency,
         ),
     }
@@ -92,8 +83,7 @@ class TestDependenciesResolver:
             schema_in_post=UserInSchema,
             schema_in_patch=UserPatchSchema,
             resource_type=resource_type,
-            class_list=UserCustomListView,
-            class_detail=UserCustomDetailView,
+            view=UserCustomView,
         )
         return app
 

@@ -168,10 +168,13 @@ class BaseSQLA:
     def query(
         cls,
         model: TypeModel,
+        fields: Optional[list] = None,
+        select_from: Optional[TypeModel] = None,
         distinct_: bool = False,
         filters: Optional[list[Union[BinaryExpression, bool]]] = None,
         for_update: Optional[dict] = None,
-        join: Optional[list[RelationshipInfo]] = None,
+        join: Optional[list[tuple[TypeModel, Any]]] = None,
+        jsonapi_join: Optional[list[RelationshipInfo]] = None,
         number: Optional[int] = None,
         options: Iterable = (),
         order: Optional[Union[str, UnaryExpression]] = None,
@@ -179,7 +182,10 @@ class BaseSQLA:
         stmt: Optional[Select] = None,
     ) -> Select:
         if stmt is None:
-            stmt = select(model)
+            stmt = select(model) if fields is None else select(*fields)
+
+        if select_from is not None:
+            stmt = stmt.select_from(select_from)
 
         if filters is not None:
             stmt = stmt.where(*filters)
@@ -193,17 +199,21 @@ class BaseSQLA:
         if order is not None:
             stmt = stmt.order_by(*order)
 
-        if join:
-            for relationship_info in join:
+        if jsonapi_join:
+            for relationship_info in jsonapi_join:
                 stmt = stmt.join(relationship_info.aliased_model, relationship_info.join_column)
 
         if size not in [0, None]:
             stmt = stmt.limit(size)
-            if number:
-                stmt = stmt.offset((number - 1) * size)
+            number = number or 1
+            stmt = stmt.offset((number - 1) * size)
 
         if distinct_:
             stmt = stmt.distinct()
+
+        if join is not None:
+            for join_model, predicate in join:
+                stmt = stmt.join(join_model, predicate)
 
         return stmt
 

@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from examples.api_for_sqlalchemy.models import User
 from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema, UserSchema
 from fastapi_jsonapi.atomic import current_atomic_operation
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
 from fastapi_jsonapi.utils.exceptions import handle_validation_error
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
+from fastapi_jsonapi.views import Operation, OperationConfig
 from tests.common_user_api_test import (
     BaseGenericUserCreateUpdateWithBodyDependency,
     CustomNameAttributesJSONAPI,
@@ -115,25 +115,16 @@ class UserUpdateCustomDependency(ArbitraryModelBase):
     allow: bool = Depends(validator_update.validate)
 
 
-class UserCustomListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class UserCustomView(ViewBaseGeneric):
+    operation_dependencies: ClassVar[dict[Operation, OperationConfig]] = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
         ),
-        HTTPMethod.POST: HTTPMethodConfig(
+        Operation.CREATE: OperationConfig(
             dependencies=UserCreateCustomDependency,
         ),
-    }
-
-
-class UserCustomDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=common_handler,
-        ),
-        HTTPMethod.PATCH: HTTPMethodConfig(
+        Operation.UPDATE: OperationConfig(
             dependencies=UserUpdateCustomDependency,
         ),
     }
@@ -155,8 +146,7 @@ class TestSameBodyDependencyBothForGenericsAndCurrentAtomicOperation(
             model=User,
             schema=UserSchema,
             resource_type=resource_type,
-            class_list=UserCustomListView,
-            class_detail=UserCustomDetailView,
+            view=UserCustomView,
             path=f"/path_{resource_type}",
         )
         return app

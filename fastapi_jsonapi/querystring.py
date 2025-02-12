@@ -10,7 +10,6 @@ from fastapi import FastAPI, Request
 from fastapi.datastructures import QueryParams
 from pydantic import BaseModel, Field
 
-from fastapi_jsonapi.api import RoutersJSONAPI
 from fastapi_jsonapi.exceptions import (
     BadRequest,
     InvalidField,
@@ -18,6 +17,7 @@ from fastapi_jsonapi.exceptions import (
     InvalidInclude,
     InvalidType,
 )
+from fastapi_jsonapi.storages import schemas_storage
 
 
 class PaginationQueryStringManager(BaseModel):
@@ -232,14 +232,11 @@ class QueryStringManager:
         """
         fields = self._get_multiple_key_values("fields")
         for resource_type, field_names in fields.items():
-            # TODO: we have registry for models (BaseModel)
-            # TODO: create `type to schemas` registry
-
-            if resource_type not in RoutersJSONAPI.all_jsonapi_routers:
+            if not schemas_storage.has_resource(resource_type):
                 msg = f"Application has no resource with type {resource_type!r}"
                 raise InvalidType(msg)
 
-            schema: Type[BaseModel] = self._get_schema(resource_type)
+            schema: Type[BaseModel] = schemas_storage.get_attrs_schema(resource_type, "get")
 
             for field_name in field_names:
                 if field_name == "":
@@ -250,10 +247,6 @@ class QueryStringManager:
                     raise InvalidField(msg)
 
         return {resource_type: set(field_names) for resource_type, field_names in fields.items()}
-
-    @classmethod
-    def _get_schema(cls, resource_type: str) -> Type[BaseModel]:
-        return RoutersJSONAPI.all_jsonapi_routers[resource_type].schema
 
     @property
     def include(self) -> list[str]:
