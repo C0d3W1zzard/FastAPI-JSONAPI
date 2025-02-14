@@ -76,6 +76,7 @@ class RoutersJSONAPI:
         pagination_default_limit: Optional[int] = None,
         methods: Iterable[str] = (),
         max_cache_size: int = 0,
+        ending_slash: bool = True,
     ) -> None:
         """
         Initialize router items.
@@ -115,6 +116,7 @@ class RoutersJSONAPI:
         self.schema_detail = schema
         # tuple and not set, so ordering is persisted
         self.methods = tuple(methods) or self.DEFAULT_METHODS
+        self.ending_suffix = "/" if ending_slash else ""
 
         if self.type_ in self.all_jsonapi_routers:
             msg = f"Resource type {self.type_!r} already registered"
@@ -184,7 +186,7 @@ class RoutersJSONAPI:
             status.HTTP_200_OK: {"model": self.list_response_schema},
         }
         self.router.add_api_route(
-            path=path,
+            path=path + self.ending_suffix,
             tags=self.tags,
             responses=list_response_example | self.default_error_responses,
             methods=["GET"],
@@ -198,7 +200,7 @@ class RoutersJSONAPI:
             status.HTTP_201_CREATED: {"model": self.detail_response_schema},
         }
         self.router.add_api_route(
-            path=path,
+            path=path + self.ending_suffix,
             tags=self.tags,
             responses=create_resource_response_example | self.default_error_responses,
             methods=["POST"],
@@ -213,7 +215,7 @@ class RoutersJSONAPI:
             status.HTTP_200_OK: {"model": self.detail_response_schema},
         }
         self.router.add_api_route(
-            path=path,
+            path=path + self.ending_suffix,
             tags=self.tags,
             responses=detail_response_example | self.default_error_responses,
             methods=["DELETE"],
@@ -229,7 +231,7 @@ class RoutersJSONAPI:
         self.router.add_api_route(
             # TODO: variable path param name (set default name on DetailView class)
             # TODO: trailing slash (optional)
-            path=path + "/{obj_id}",
+            path=path + "/{obj_id}" + self.ending_suffix,
             tags=self.tags,
             responses=detail_response_example | self.default_error_responses,
             methods=["GET"],
@@ -245,7 +247,7 @@ class RoutersJSONAPI:
         self.router.add_api_route(
             # TODO: variable path param name (set default name on DetailView class)
             # TODO: trailing slash (optional)
-            path=path + "/{obj_id}",
+            path=path + "/{obj_id}" + self.ending_suffix,
             tags=self.tags,
             responses=update_response_example | self.default_error_responses,
             methods=["PATCH"],
@@ -264,7 +266,7 @@ class RoutersJSONAPI:
         self.router.add_api_route(
             # TODO: variable path param name (set default name on DetailView class)
             # TODO: trailing slash (optional)
-            path=path + "/{obj_id}",
+            path=path + "/{obj_id}" + self.ending_suffix,
             tags=self.tags,
             responses=delete_response_example | self.default_error_responses,
             methods=["DELETE"],

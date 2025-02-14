@@ -1277,7 +1277,7 @@ class TestCreateObjects:
             },
         }
         app.url_path_for("get_user_list")
-        res = await client.post("/users", json=create_user_body)
+        res = await client.post("/users/", json=create_user_body)
         assert res.status_code == status.HTTP_201_CREATED, res.text
         response_data = res.json()
         assert "data" in response_data, response_data
@@ -1285,7 +1285,7 @@ class TestCreateObjects:
 
         user_id = response_data["data"]["id"]
 
-        res = await client.get(f"/users/{user_id}")
+        res = await client.get(f"/users/{user_id}/")
         assert res.status_code == status.HTTP_200_OK, res.text
         response_data = res.json()
         assert "data" in response_data, response_data
@@ -2511,7 +2511,7 @@ class TestFilters:
         params = {"filter[name]": fake_name}
         assert user_1.name != fake_name
         assert user_2.name != fake_name
-        res = await client.get("/users", params=params)
+        res = await client.get("/users/", params=params)
         assert res.status_code == status.HTTP_200_OK, res.text
         assert res.json() == {
             "data": [],
