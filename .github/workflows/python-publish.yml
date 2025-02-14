@@ -19,7 +19,7 @@ jobs:
     - name: Set up Python 🐍
       uses: actions/setup-python@v3
       with:
-        python-version: '3.11'
+        python-version: '3.12'
 
     - name: Install Hatch 🐣
       run: pip install --upgrade pip setuptools wheel twine "hatch==1.7.0"
