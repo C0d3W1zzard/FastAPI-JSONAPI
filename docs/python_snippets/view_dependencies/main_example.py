@@ -32,7 +32,7 @@ async def common_handler(view: ViewBase, dto: SessionDependency) -> dict:
 
 async def check_that_user_is_admin(x_auth: Annotated[str, Header()]):
     if x_auth != "admin":
-        raise Forbidden(detail="Only admin user have permissions to this endpoint")
+        raise Forbidden(detail="Only admin user have permissions to this endpoint.")
 
 
 class AdminOnlyPermission(BaseModel):

@@ -1,5 +1,7 @@
 import asyncio
 import logging
+from collections import defaultdict
+from copy import copy
 
 import pytest
 from fastapi import FastAPI
@@ -7,6 +9,7 @@ from httpx import AsyncClient
 from pytest import fixture  # noqa PT013
 from pytest_asyncio import fixture as async_fixture
 
+from fastapi_jsonapi.data_layers.sqla.query_building import relationships_info_storage
 from tests.fixtures.app import (  # noqa
     app,
     app_plain,
@@ -83,3 +86,11 @@ def event_loop():
 async def client(app: FastAPI) -> AsyncClient:  # noqa
     async with AsyncClient(app=app, base_url="http://test") as ac:
         yield ac
+
+
+@pytest.fixture
+def clear_relationships_info_storage():
+    data = copy(relationships_info_storage._data)
+    relationships_info_storage._data = defaultdict(dict)
+    yield
+    relationships_info_storage._data = data

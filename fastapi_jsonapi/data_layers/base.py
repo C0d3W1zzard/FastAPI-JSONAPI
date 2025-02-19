@@ -24,11 +24,11 @@ class BaseDataLayer:
         request: Request,
         schema: Type[TypeSchema],
         model: Type[TypeModel],
+        resource_type: str,
         url_id_field: str,
         id_name_field: Optional[str] = None,
         disable_collection_count: bool = False,
         default_collection_count: int = -1,
-        type_: str = "",
         **kwargs,
     ):
         """
@@ -41,18 +41,18 @@ class BaseDataLayer:
         :param id_name_field:
         :param disable_collection_count:
         :param default_collection_count:
-        :param type_: resource type
+        :param resource_type: resource type
         :param kwargs:
         """
         self.request = request
         self.schema = schema
         self.model = model
+        self.resource_type = resource_type
         self.url_id_field = url_id_field
         self.id_name_field = id_name_field
         self.disable_collection_count: bool = disable_collection_count
         self.default_collection_count: int = default_collection_count
         self.is_atomic = False
-        self.type_ = type_
 
     async def atomic_start(self, previous_dl: Optional["BaseDataLayer"] = None):
         self.is_atomic = True

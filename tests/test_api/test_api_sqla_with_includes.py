@@ -4,6 +4,7 @@ from contextlib import suppress
 from datetime import datetime, timezone
 from itertools import chain, zip_longest
 from typing import Annotated, Literal
+from unittest import mock
 from unittest.mock import call
 from uuid import UUID, uuid4
 
@@ -28,6 +29,7 @@ from examples.api_for_sqlalchemy.schemas import (
     UserSchema,
 )
 from fastapi_jsonapi.api import RoutersJSONAPI
+from fastapi_jsonapi.data_layers.sqla import query_building as query_building_module
 from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.types_metadata.custom_filter_sql import sql_filter_lower_equals
 from fastapi_jsonapi.types_metadata.custom_sort_sql import sql_register_free_sort
@@ -2029,7 +2031,7 @@ class TestPatchObjectRelationshipsToOne:
         assert res.json() == {
             "errors": [
                 {
-                    "detail": "obj_id and data.id should be same",
+                    "detail": "obj_id and data.id should be same.",
                     "source": {"pointer": "/data/id"},
                     "status_code": status.HTTP_400_BAD_REQUEST,
                     "title": "Bad Request",
@@ -2695,7 +2697,7 @@ class TestFilters:
             assert response.json() == {
                 "errors": [
                     {
-                        "detail": "The field `email` can't be null",
+                        "detail": "The field `email` can't be null.",
                         "source": {"parameter": "filters"},
                         "status_code": status.HTTP_400_BAD_REQUEST,
                         "title": "Invalid filters querystring parameter.",
@@ -3228,7 +3230,7 @@ class TestFilters:
         assert res.json() == {
             "errors": [
                 {
-                    "detail": "The field `id` can't be null",
+                    "detail": "The field `id` can't be null.",
                     "source": {"parameter": "filters"},
                     "status_code": status.HTTP_400_BAD_REQUEST,
                     "title": "Invalid filters querystring parameter.",
@@ -3341,6 +3343,89 @@ class TestFilters:
                 "jsonapi": {"version": "1.0"},
                 "meta": {"count": 1, "totalPages": 1},
             }
+
+    async def test_relationships_storage_using(
+        self,
+        clear_relationships_info_storage,
+        app: FastAPI,
+        client: AsyncClient,
+    ):
+        params = {
+            "filter": json.dumps(
+                [
+                    {
+                        "name": "workplace.name",
+                        "op": "eq",
+                        "val": "",
+                    },
+                    {
+                        "name": "posts.comments.text",
+                        "op": "eq",
+                        "val": "",
+                    },
+                ],
+            ).decode(),
+        }
+
+        url = app.url_path_for("get_user_list")
+
+        expected_call_count = 3
+        expected_relationship_paths = {("workplace",), ("posts", "comments")}
+        with mock.patch.object(
+            query_building_module,
+            "gather_relationships_info",
+            wraps=query_building_module.gather_relationships_info,
+        ) as mocked_gather:
+            response = await client.get(url, params=params)
+            actual_relationship_paths = {
+                tuple(call_args.kwargs["relationship_path"]) for call_args in mocked_gather.call_args_list
+            }
+
+            assert response.status_code == status.HTTP_200_OK, response.text
+            assert expected_call_count == mocked_gather.call_count, mocked_gather.mock_calls
+            assert expected_relationship_paths == actual_relationship_paths
+
+            # don't gather relationships if already called with these paths
+            mocked_gather.reset_mock()
+            expected_call_count, expected_relationship_paths = 0, set()
+            response = await client.get(url, params=params)
+            actual_relationship_paths = {
+                tuple(call_args.kwargs["relationship_path"]) for call_args in mocked_gather.call_args_list
+            }
+
+            assert response.status_code == status.HTTP_200_OK, response.text
+            assert expected_call_count == mocked_gather.call_count, mocked_gather.mock_calls
+            assert expected_relationship_paths == actual_relationship_paths
+
+            params = {
+                "filter": json.dumps(
+                    [
+                        {
+                            "name": "workplace.name",
+                            "op": "eq",
+                            "val": "",
+                        },
+                        # not called for this relationship yet
+                        {
+                            "name": "bio.birth_city",
+                            "op": "eq",
+                            "val": "",
+                        },
+                    ],
+                ).decode(),
+            }
+
+            # check called for new path only
+            mocked_gather.reset_mock()
+            expected_call_count, expected_relationship_paths = 1, {("bio",)}
+            response = await client.get(url, params=params)
+            actual_relationship_paths = {
+                tuple(call_args.kwargs["relationship_path"]) for call_args in mocked_gather.call_args_list
+            }
+
+            assert response.status_code == status.HTTP_200_OK, response.text
+            assert expected_call_count == mocked_gather.call_count, mocked_gather.mock_calls
+            assert expected_relationship_paths == actual_relationship_paths
 
 
 ASCENDING = ""

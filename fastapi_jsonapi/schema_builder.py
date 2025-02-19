@@ -77,7 +77,7 @@ class SchemaBuilder:
         schema_in_post, schema_in_post_data = self.build_schema_in(
             schema_in=schema_in_post,
             schema=schema,
-            operation_type="post",
+            operation_type="create",
             schema_name_suffix=schema_name_in_post_suffix,
             non_optional_relationships=True,
         )
@@ -85,7 +85,7 @@ class SchemaBuilder:
         schema_in_patch, schema_in_patch_data = self.build_schema_in(
             schema_in=schema_in_patch,
             schema=schema,
-            operation_type="patch",
+            operation_type="update",
             schema_name_suffix=schema_name_in_patch_suffix,
             id_field_required=True,
         )
@@ -103,7 +103,7 @@ class SchemaBuilder:
         self,
         schema_in: Type[BaseModel],
         schema,
-        operation_type: Literal["post", "patch", "get"],
+        operation_type: Literal["create", "update", "get"],
         schema_name_suffix: str = "",
         non_optional_relationships: bool = False,
         id_field_required: bool = False,
@@ -199,7 +199,7 @@ class SchemaBuilder:
         self,
         base_name: str,
         schema: Type[BaseModel],
-        operation_type: Literal["post", "patch", "get"],
+        operation_type: Literal["create", "update", "get"],
         non_optional_relationships: bool = False,
     ) -> SchemasInfoDTO:
         attributes_schema_fields = {}
@@ -302,7 +302,7 @@ class SchemaBuilder:
         self,
         field_name: str,
         base_name: str,
-        operation_type: Literal["post", "patch", "get"],
+        operation_type: Literal["create", "update", "get"],
         field: FieldInfo,
         relationship_info: RelationshipInfo,
     ) -> RelationshipInfoSchema:

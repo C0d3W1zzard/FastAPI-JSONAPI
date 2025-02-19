@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 from collections import defaultdict
 from typing import Any, Literal, Optional, Type
 
 from fastapi_jsonapi.data_typing import TypeSchema
+from fastapi_jsonapi.models_storage import models_storage
 from fastapi_jsonapi.schema import JSONAPIObjectSchemas, get_schema_from_field_annotation
 from fastapi_jsonapi.types_metadata.relationship_info import RelationshipInfo
 
@@ -22,7 +25,7 @@ class SchemasStorage:
         self,
         from_resource_type: str,
         to_resource_type: str,
-        operation_type: Literal["post", "patch", "get"],
+        operation_type: Literal["create", "update", "get"],
         field_name: str,
         relationship_schema: Type[TypeSchema],
         relationship_info: RelationshipInfo,
@@ -38,7 +41,7 @@ class SchemasStorage:
         self,
         from_resource_type: str,
         to_resource_type: str,
-        operation_type: Literal["post", "patch", "get"],
+        operation_type: Literal["create", "update", "get"],
         field_name: str,
     ) -> Optional[TypeSchema]:
         self._init_resource_if_needed(from_resource_type)
@@ -50,7 +53,7 @@ class SchemasStorage:
         self,
         builder,
         resource_type: str,
-        operation_type: Literal["post", "patch", "get"],
+        operation_type: Literal["create", "update", "get"],
         source_schema: Type[TypeSchema],
         data_schema: Type[TypeSchema],
         attributes_schema: Type[TypeSchema],
@@ -68,14 +71,18 @@ class SchemasStorage:
             },
         }
         self._registered_schemas.add((source_schema, resource_type, operation_type))
+        model = models_storage.get_model(resource_type)
 
         # User can have relationship resources without having CRUD operations for these resource types.
         # So the SchemaStorage will not be filled with schemas without passing through the relationships.
-        for info, field in relationships_info.values():
+        for relationship_name, (info, field) in relationships_info.items():
             relationship_source_schema = get_schema_from_field_annotation(field)
 
             if (relationship_source_schema, info.resource_type, "get") in self._registered_schemas:
                 continue
+
+            relationship_model = models_storage.search_relationship_model(resource_type, model, relationship_name)
+            models_storage.add_model(info.resource_type, relationship_model)
 
             dto = builder._get_info_from_schema_for_building(
                 base_name=f"{info.resource_type}_hidden_generation",
@@ -103,24 +110,24 @@ class SchemasStorage:
     def get_data_schema(
         self,
         resource_type: str,
-        operation_type: Literal["post", "patch", "get"],
+        operation_type: Literal["create", "update", "get"],
     ) -> Optional[TypeSchema]:
         return self._data[resource_type][operation_type]["data_schema"]
 
     def get_attrs_schema(
         self,
         resource_type: str,
-        operation_type: Literal["post", "patch", "get"],
+        operation_type: Literal["create", "update", "get"],
     ) -> Optional[TypeSchema]:
         return self._data[resource_type][operation_type]["attrs_schema"]
 
     def get_relationship(
         self,
         resource_type: str,
-        operation_type: Literal["post", "patch", "get"],
+        operation_type: Literal["create", "update", "get"],
         field_name: str,
-    ) -> Optional[TypeSchema]:
-        return self._data[resource_type][operation_type]["relationships_info"][field_name]
+    ) -> Optional[RelationshipInfo]:
+        return self._data[resource_type][operation_type]["relationships_info"].get(field_name)
 
     def get_jsonapi_object_schema(
         self,

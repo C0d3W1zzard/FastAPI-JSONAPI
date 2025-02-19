@@ -1,6 +1,7 @@
 """Helper to create sqlalchemy filters according to filter querystring parameter"""
 
 import logging
+from collections import defaultdict
 from typing import Any, Optional, Type, Union, get_args
 
 from pydantic import BaseModel, ConfigDict, PydanticSchemaGenerationError, TypeAdapter
@@ -19,7 +20,7 @@ from sqlalchemy.sql.elements import BinaryExpression
 from fastapi_jsonapi.common import search_custom_filter_sql, search_custom_sort_sql
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.exceptions import InvalidField, InvalidFilters, InvalidType
-from fastapi_jsonapi.exceptions.json_api import HTTPException
+from fastapi_jsonapi.exceptions.json_api import HTTPException, InternalServerError
 from fastapi_jsonapi.schema import (
     JSONAPISchemaIntrospectionError,
     get_model_field,
@@ -30,9 +31,7 @@ from fastapi_jsonapi.types_metadata import CustomFilterSQL, CustomSortSQL
 
 log = logging.getLogger(__name__)
 
-RELATIONSHIP_SPLITTER = "."
 cast_failed = object()
-RelationshipPath = str
 
 
 class RelationshipInfo(BaseModel):
@@ -44,6 +43,32 @@ class RelationshipInfo(BaseModel):
     model: Type[TypeModel]
     aliased_model: AliasedClass
     join_column: InstrumentedAttribute
+
+
+class RelationshipInfoStorage:
+    def __init__(self):
+        self._data = defaultdict(dict)
+
+    def has_info(self, resource_type: str, path: str) -> bool:
+        return path in self._data[resource_type]
+
+    def get_info(self, resource_type: str, path: str) -> RelationshipInfo:
+        try:
+            return self._data[resource_type][path]
+        except KeyError:
+            raise InternalServerError(
+                detail=(
+                    f"Error of loading relationship info from storage for resource_type {resource_type!r}. "
+                    f"Target relationship has path {path!r}."
+                ),
+                parameter="filter",
+            )
+
+    def set_info(self, resource_type: str, path: str, info: RelationshipInfo):
+        self._data[resource_type][path] = info
+
+
+relationships_info_storage = RelationshipInfoStorage()
 
 
 def cast_value_with_schema(field_types: list[Type], value: Any) -> tuple[Any, list[str]]:
@@ -104,7 +129,7 @@ def build_filter_expression(
         if can_be_none:
             return getattr(model_column, operator)(value)
 
-        raise InvalidFilters(detail=f"The field `{model_column.key}` can't be null")
+        raise InvalidFilters(detail=f"The field `{model_column.key}` can't be null.")
 
     casted_value, errors = cast_value_with_schema(
         field_types=[i.annotation for i in fields],
@@ -140,7 +165,7 @@ def is_filtering_terminal_node(filter_item: dict) -> bool:
 
 
 def is_relationship_filter(name: str) -> bool:
-    return RELATIONSHIP_SPLITTER in name
+    return "." in name
 
 
 def gather_relationship_paths(item: Union[dict, list[dict]]) -> set[str]:
@@ -154,10 +179,10 @@ def gather_relationship_paths(item: Union[dict, list[dict]]) -> set[str]:
             names.update(gather_relationship_paths(sub_item))
 
     elif field_name := (item.get("name") or item.get("field")):
-        if RELATIONSHIP_SPLITTER not in field_name:
+        if "." not in field_name:
             return set()
 
-        return {RELATIONSHIP_SPLITTER.join(field_name.split(RELATIONSHIP_SPLITTER)[:-1])}
+        return {".".join(field_name.split(".")[:-1])}
 
     else:
         for sub_item in item.values():
@@ -207,13 +232,13 @@ def get_operator(model_column: InstrumentedAttribute, operator_name: str) -> str
 def gather_relationships_info(
     model: Type[TypeModel],
     schema: Type[TypeSchema],
+    entrypoint_resource_type: str,
     relationship_path: list[str],
-    collected_info: dict[RelationshipPath, RelationshipInfo],
     target_relationship_idx: int = 0,
     prev_aliased_model: Optional[Any] = None,
-) -> dict[RelationshipPath, RelationshipInfo]:
+) -> dict[str, RelationshipInfo]:
     is_last_relationship = target_relationship_idx == len(relationship_path) - 1
-    target_relationship_path = RELATIONSHIP_SPLITTER.join(
+    target_relationship_path = ".".join(
         relationship_path[: target_relationship_idx + 1],
     )
     target_relationship_name = relationship_path[target_relationship_idx]
@@ -240,53 +265,74 @@ def gather_relationships_info(
         )
 
     aliased_model = aliased(target_model)
-    collected_info[target_relationship_path] = RelationshipInfo(
-        target_schema=target_schema,
-        model=target_model,
-        aliased_model=aliased_model,
-        join_column=join_column,
+    relationships_info_storage.set_info(
+        resource_type=entrypoint_resource_type,
+        path=target_relationship_path,
+        info=RelationshipInfo(
+            target_schema=target_schema,
+            model=target_model,
+            aliased_model=aliased_model,
+            join_column=join_column,
+        ),
     )
 
     if not is_last_relationship:
         return gather_relationships_info(
             model=target_model,
             schema=target_schema,
+            entrypoint_resource_type=entrypoint_resource_type,
             relationship_path=relationship_path,
-            collected_info=collected_info,
             target_relationship_idx=target_relationship_idx + 1,
             prev_aliased_model=aliased_model,
         )
 
-    return collected_info
-
 
 def gather_relationships(
+    entrypoint_resource_type: str,
     entrypoint_model: Type[TypeModel],
     schema: Type[TypeSchema],
     relationship_paths: set[str],
-) -> dict[RelationshipPath, RelationshipInfo]:
-    collected_info = {}
-    for relationship_path in sorted(relationship_paths):
+) -> set[str]:
+    for relationship_path in relationship_paths:
+        if relationships_info_storage.has_info(entrypoint_resource_type, relationship_path):
+            continue
+
         gather_relationships_info(
             model=entrypoint_model,
             schema=schema,
-            relationship_path=relationship_path.split(RELATIONSHIP_SPLITTER),
-            collected_info=collected_info,
+            entrypoint_resource_type=entrypoint_resource_type,
+            relationship_path=relationship_path.split("."),
         )
 
-    return collected_info
+    return relationship_paths
 
 
 def prepare_relationships_info(
     model: Type[TypeModel],
     schema: Type[TypeSchema],
+    resource_type: str,
     filter_info: list,
     sorting_info: list,
-) -> dict[RelationshipPath, RelationshipInfo]:
-    # TODO: do this on application startup or use the cache
+) -> set[str]:
+    """
+    Return set with request relationship paths in dot separated format.
+
+    Gathers information about all relationships involved to request and save them
+    data for skip extra computations for the next time.
+
+    For the filter like this:
+        filter_info = [
+            {"field": "foo.bar.field_name", "op": "eq", "val": ""},
+            {"field": "baz.field_name", "op": "eq", "val": ""},
+        ]
+
+    It returns:
+        ("foo.bar", "baz")
+    """
     relationship_paths = gather_relationship_paths(filter_info)
     relationship_paths.update(gather_relationship_paths(sorting_info))
     return gather_relationships(
+        entrypoint_resource_type=resource_type,
         entrypoint_model=model,
         schema=schema,
         relationship_paths=relationship_paths,
@@ -297,12 +343,15 @@ def build_terminal_node_filter_expressions(
     filter_item: dict,
     target_schema: Type[TypeSchema],
     target_model: Type[TypeModel],
-    relationships_info: dict[RelationshipPath, RelationshipInfo],
+    entrypoint_resource_type: str,
 ):
     name: str = filter_item["name"]
     if is_relationship_filter(name):
-        *relationship_path, field_name = name.split(RELATIONSHIP_SPLITTER)
-        relationship_info: RelationshipInfo = relationships_info[RELATIONSHIP_SPLITTER.join(relationship_path)]
+        *relationship_path, field_name = name.split(".")
+        relationship_info: RelationshipInfo = relationships_info_storage.get_info(
+            resource_type=entrypoint_resource_type,
+            path=".".join(relationship_path),
+        )
         model_column = get_model_column(
             model=relationship_info.aliased_model,
             schema=relationship_info.target_schema,
@@ -349,7 +398,7 @@ def build_filter_expressions(
     filter_item: dict,
     target_schema: Type[TypeSchema],
     target_model: Type[TypeModel],
-    relationships_info: dict[RelationshipPath, RelationshipInfo],
+    entrypoint_resource_type: str,
 ) -> BinaryExpression:
     """
     Return sqla expressions.
@@ -362,7 +411,7 @@ def build_filter_expressions(
             filter_item=filter_item,
             target_schema=target_schema,
             target_model=target_model,
-            relationships_info=relationships_info,
+            entrypoint_resource_type=entrypoint_resource_type,
         )
 
     if not isinstance(filter_item, dict):
@@ -395,7 +444,7 @@ def build_filter_expressions(
                 filter_item=filter_item[logic_operator],
                 target_schema=target_schema,
                 target_model=target_model,
-                relationships_info=relationships_info,
+                entrypoint_resource_type=entrypoint_resource_type,
             ),
         )
 
@@ -405,7 +454,7 @@ def build_filter_expressions(
                 filter_item=filter_sub_item,
                 target_schema=target_schema,
                 target_model=target_model,
-                relationships_info=relationships_info,
+                entrypoint_resource_type=entrypoint_resource_type,
             )
             for filter_sub_item in filter_item[logic_operator]
         ),
@@ -416,7 +465,7 @@ def build_sort_expressions(
     sort_items: list[dict],
     target_schema: Type[TypeSchema],
     target_model: Type[TypeModel],
-    relationships_info: dict[RelationshipPath, RelationshipInfo],
+    entrypoint_resource_type: str,
 ):
     expressions = []
     for item in sort_items:
@@ -424,9 +473,13 @@ def build_sort_expressions(
         model, field_name = target_model, item["field"]
 
         if relationship_path := item.get("rel_path"):
-            field_name = item["field"].split(RELATIONSHIP_SPLITTER)[-1]
-            model = relationships_info[relationship_path].aliased_model
-            schema = relationships_info[relationship_path].target_schema
+            field_name = item["field"].split(".")[-1]
+            info = relationships_info_storage.get_info(
+                resource_type=entrypoint_resource_type,
+                path=relationship_path,
+            )
+            model = info.aliased_model
+            schema = info.target_schema
 
         schema_field = schema.model_fields[field_name]
         custom_sort_sql: Optional[CustomSortSQL] = search_custom_sort_sql.first(field=schema_field)

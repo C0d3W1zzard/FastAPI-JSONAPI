@@ -50,7 +50,7 @@ class DetailViewBase(ViewBase):
     ) -> dict:
         if obj_id != data_update.id:
             raise BadRequest(
-                detail="obj_id and data.id should be same",
+                detail="obj_id and data.id should be same.",
                 pointer="/data/id",
             )
         view_kwargs = {dl.url_id_field: obj_id}

@@ -13,7 +13,6 @@ from fastapi_jsonapi.data_layers.base import BaseDataLayer
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.schemas_storage import schemas_storage
-from fastapi_jsonapi.splitter import SPLIT_REL
 from fastapi_jsonapi.types_metadata import RelationshipInfo
 from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
 
@@ -39,7 +38,7 @@ class ViewBase:
             request=self.request,
             schema=schema,
             model=self.jsonapi.model,
-            type_=self.jsonapi.type_,
+            resource_type=self.jsonapi.type_,
             **dl_kwargs,
         )
 
@@ -150,11 +149,11 @@ class ViewBase:
 
         for include in includes:
             if not include.startswith(prev):
-                result.append(prev.split(SPLIT_REL))
+                result.append(prev.split("."))
 
             prev = include
 
-        result.append(prev.split(SPLIT_REL))
+        result.append(prev.split("."))
         return result
 
     @classmethod

@@ -16,12 +16,12 @@ from sqlalchemy.orm.collections import InstrumentedList
 from sqlalchemy.sql import Select, column, distinct
 
 from fastapi_jsonapi import BadRequest
-from fastapi_jsonapi.common import get_relationship_info_from_field_metadata
 from fastapi_jsonapi.data_layers.base import BaseDataLayer
 from fastapi_jsonapi.data_layers.sqla.query_building import (
     build_filter_expressions,
     build_sort_expressions,
     prepare_relationships_info,
+    relationships_info_storage,
 )
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.exceptions import (
@@ -32,15 +32,14 @@ from fastapi_jsonapi.exceptions import (
     RelatedObjectNotFound,
     RelationNotFound,
 )
+from fastapi_jsonapi.models_storage import models_storage
 from fastapi_jsonapi.querystring import PaginationQueryStringManager, QueryStringManager
 from fastapi_jsonapi.schema import (
     BaseJSONAPIItemInSchema,
     BaseJSONAPIRelationshipDataToManySchema,
     BaseJSONAPIRelationshipDataToOneSchema,
-    get_model_field,
-    get_related_schema,
 )
-from fastapi_jsonapi.splitter import SPLIT_REL
+from fastapi_jsonapi.schemas_storage import schemas_storage
 from fastapi_jsonapi.types_metadata import RelationshipInfo
 
 log = logging.getLogger(__name__)
@@ -56,6 +55,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
         schema: Type[TypeSchema],
         model: Type[TypeModel],
         session: AsyncSession,
+        resource_type: str,
         disable_collection_count: bool = False,
         default_collection_count: int = -1,
         id_name_field: Optional[str] = None,
@@ -82,6 +82,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
         super().__init__(
             schema=schema,
             model=model,
+            resource_type=resource_type,
             url_id_field=url_id_field,
             id_name_field=id_name_field,
             disable_collection_count=disable_collection_count,
@@ -227,20 +228,17 @@ class SqlalchemyDataLayer(BaseDataLayer):
         if relationships is None:
             return
 
-        schema_fields = self.schema.model_fields or {}
         for relation_name, relationship_in in relationships:
             if relationship_in is None:
                 continue
 
-            field = schema_fields.get(relation_name)
-            if field is None:
-                # should not happen if schema is built properly
-                # there may be an error if schema and schema_in are different
-                log.warning("Field for %s in schema %s not found", relation_name, self.schema.__name__)
-                continue
-
-            relationship_info: Optional[RelationshipInfo] = get_relationship_info_from_field_metadata(field)
+            relationship_info = schemas_storage.get_relationship(
+                resource_type=self.resource_type,
+                operation_type=action_trigger,
+                field_name=relation_name,
+            )
             if relationship_info is None:
+                log.warning("Not found relationship %s for resource_type %s", relation_name, self.resource_type)
                 continue
 
             related_model = getattr(type(obj), relation_name).property.mapper.class_
@@ -413,7 +411,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 msg,
                 pointer="/data",
                 meta={
-                    "type": self.type_,
+                    "type": self.resource_type,
                     "id": view_kwargs.get(self.url_id_field),
                 },
             )
@@ -427,7 +425,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 detail=err_message,
                 pointer="/data",
                 meta={
-                    "type": self.type_,
+                    "type": self.resource_type,
                     "id": view_kwargs.get(self.url_id_field),
                 },
             )
@@ -459,7 +457,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 detail=err_message,
                 pointer="/data",
                 meta={
-                    "type": self.type_,
+                    "type": self.resource_type,
                     "id": view_kwargs.get(self.url_id_field),
                 },
             )
@@ -476,7 +474,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
         except DBAPIError as e:
             await self.session.rollback()
             raise InternalServerError(
-                detail=f"Got an error {e.__class__.__name__} during delete data from DB: {e!s}",
+                detail=f"Got an error {e.__class__.__name__} during delete data from DB: {e!s}.",
             )
 
         await self.after_delete_objects(objects, view_kwargs)
@@ -583,7 +581,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
     def get_related_model_query_base(
         self,
-        related_model: Type[TypeModel],
+        related_model: TypeModel,
     ) -> Select:
         """
         Prepare sql query (statement) to fetch related model
@@ -595,7 +593,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
     def get_related_object_query(
         self,
-        related_model: Type[TypeModel],
+        related_model: TypeModel,
         related_id_field: str,
         id_value: str,
     ):
@@ -606,7 +604,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
     def get_related_objects_list_query(
         self,
-        related_model: Type[TypeModel],
+        related_model: TypeModel,
         related_id_field: str,
         ids: list[str],
     ) -> tuple[Select, list[str]]:
@@ -617,7 +615,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
     async def get_related_object(
         self,
-        related_model: Type[TypeModel],
+        related_model: TypeModel,
         related_id_field: str,
         id_value: str,
     ) -> TypeModel:
@@ -645,7 +643,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
     async def get_related_objects_list(
         self,
-        related_model: Type[TypeModel],
+        related_model: TypeModel,
         related_id_field: str,
         ids: list[str],
     ) -> list[TypeModel]:
@@ -678,9 +676,17 @@ class SqlalchemyDataLayer(BaseDataLayer):
 
     def apply_filters_and_sorts(self, query: Select, qs: QueryStringManager):
         filters, sorts = qs.filters, qs.sorts
-        relationships_info = prepare_relationships_info(self.model, self.schema, filters, sorts)
 
-        for info in relationships_info.values():
+        relationship_paths = prepare_relationships_info(
+            model=self.model,
+            schema=self.schema,
+            resource_type=self.resource_type,
+            filter_info=filters,
+            sorting_info=sorts,
+        )
+
+        for relationship_path in relationship_paths:
+            info = relationships_info_storage.get_info(self.resource_type, relationship_path)
             query = query.join(info.aliased_model, info.join_column)
 
         if filters:
@@ -688,7 +694,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 filter_item={"and": filters},
                 target_model=self.model,
                 target_schema=self.schema,
-                relationships_info=relationships_info,
+                entrypoint_resource_type=self.resource_type,
             )
             query = query.where(filter_expressions)
 
@@ -697,7 +703,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 sort_items=sorts,
                 target_model=self.model,
                 target_schema=self.schema,
-                relationships_info=relationships_info,
+                entrypoint_resource_type=self.resource_type,
             )
             query = query.order_by(*sort_expressions)
 
@@ -731,16 +737,25 @@ class SqlalchemyDataLayer(BaseDataLayer):
         for include in qs.include:
             relation_join_object = None
 
-            current_schema = self.schema
             current_model = self.model
-            for related_field_name in include.split(SPLIT_REL):
-                try:
-                    field_name_to_load = get_model_field(current_schema, related_field_name)
-                except Exception as e:
-                    msg = f"{e}"
-                    raise InvalidInclude(msg)
+            current_resource_type = self.resource_type
 
-                field_to_load: InstrumentedAttribute = getattr(current_model, field_name_to_load)
+            for related_field_name in include.split("."):
+                relationship_info = schemas_storage.get_relationship(
+                    resource_type=current_resource_type,
+                    operation_type="get",
+                    field_name=related_field_name,
+                )
+                if relationship_info is None:
+                    msg = (
+                        f"Not found relationship {related_field_name!r} from include {include!r} "
+                        f"for resource_type {current_resource_type!r}."
+                    )
+                    raise InvalidInclude(
+                        msg,
+                    )
+
+                field_to_load: InstrumentedAttribute = getattr(current_model, related_field_name)
                 is_many = field_to_load.property.uselist
                 if relation_join_object is None:
                     relation_join_object = selectinload(field_to_load) if is_many else joinedload(field_to_load)
@@ -749,11 +764,8 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 else:
                     relation_join_object = relation_join_object.joinedload(field_to_load)
 
-                current_schema = get_related_schema(current_schema, related_field_name)
-
-                # the first entity is Mapper,
-                # the second entity is DeclarativeMeta
-                current_model = field_to_load.property.entity.entity
+                current_resource_type = relationship_info.resource_type
+                current_model = models_storage.get_model(current_resource_type)
 
             query = query.options(relation_join_object)
 

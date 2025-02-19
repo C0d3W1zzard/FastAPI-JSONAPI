@@ -18,7 +18,6 @@ from fastapi_jsonapi.exceptions import (
     InvalidInclude,
     InvalidType,
 )
-from fastapi_jsonapi.splitter import SPLIT_REL
 
 
 class PaginationQueryStringManager(BaseModel):
@@ -173,8 +172,8 @@ class QueryStringManager:
                 order = "desc"
 
             relationship_path = None
-            if SPLIT_REL in field:
-                relationship_path = SPLIT_REL.join(field.split(SPLIT_REL)[:-1])
+            if "." in field:
+                relationship_path = ".".join(field.split(".")[:-1])
 
             sorting_results.append({"field": field, "order": order, "rel_path": relationship_path})
 
@@ -269,7 +268,7 @@ class QueryStringManager:
 
         if self.MAX_INCLUDE_DEPTH is not None:
             for include_path in includes:
-                if len(include_path.split(SPLIT_REL)) > self.MAX_INCLUDE_DEPTH:
+                if len(include_path.split(".")) > self.MAX_INCLUDE_DEPTH:
                     msg = f"You can't use include through more than {self.MAX_INCLUDE_DEPTH} relationships"
                     raise InvalidInclude(msg)
         return includes

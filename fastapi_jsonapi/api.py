@@ -20,6 +20,7 @@ from pydantic import BaseModel as PydanticBaseModel
 
 from fastapi_jsonapi.data_typing import TypeModel
 from fastapi_jsonapi.exceptions import ExceptionResponseSchema
+from fastapi_jsonapi.models_storage import models_storage
 from fastapi_jsonapi.schema_base import BaseModel
 from fastapi_jsonapi.schema_builder import SchemaBuilder
 from fastapi_jsonapi.signature import create_additional_query_params
@@ -121,6 +122,7 @@ class RoutersJSONAPI:
             msg = f"Resource type {self.type_!r} already registered"
             raise ValueError(msg)
         self.all_jsonapi_routers[self.type_] = self
+        models_storage.add_model(resource_type, model)
 
         self.pagination_default_size: Optional[int] = pagination_default_size
         self.pagination_default_number: Optional[int] = pagination_default_number
