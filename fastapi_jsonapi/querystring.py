@@ -207,7 +207,7 @@ class QueryStringManager:
         if pagination_data.get("size") is None:
             pagination.size = None
         if pagination.size:
-            if self.ALLOW_DISABLE_PAGINATION is False and pagination.size == 0:
+            if not self.ALLOW_DISABLE_PAGINATION and pagination.size == 0:
                 msg = "You are not allowed to disable pagination"
                 raise BadRequest(msg, parameter="page[size]")
             if self.MAX_PAGE_SIZE and pagination.size > self.MAX_PAGE_SIZE:

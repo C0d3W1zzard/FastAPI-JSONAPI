@@ -49,12 +49,11 @@ class ListViewBase(ViewBase):
         return await self.process_create_object(dl=dl, data_create=data_create)
 
     async def process_create_object(self, dl: BaseDataLayer, data_create: BaseJSONAPIItemInSchema) -> dict:
-        created_object = await dl.create_object(data_create=data_create, view_kwargs={})
+        db_object = await dl.create_object(data_create=data_create, view_kwargs={})
 
-        created_object_id = dl.get_object_id(created_object)
-
-        view_kwargs = {dl.url_id_field: created_object_id}
-        db_object = await dl.get_object(view_kwargs=view_kwargs, qs=self.query_params)
+        view_kwargs = {dl.url_id_field: dl.get_object_id(db_object)}
+        if self.query_params.include:
+            db_object = await dl.get_object(view_kwargs=view_kwargs, qs=self.query_params)
 
         return self._build_detail_response(db_object)
 

@@ -209,8 +209,8 @@ async def test_manipulate_data_layer_kwargs(
         assert res.json() == {
             "errors": [
                 {
-                    "detail": f"Resource User `{user_1.id}` not found",
-                    "meta": {"parameter": "id"},
+                    "detail": f"Resource User `users.id = {user_1.id}` not found",
+                    "meta": {"pointer": ""},
                     "status_code": status.HTTP_404_NOT_FOUND,
                     "title": "Resource not found.",
                 },

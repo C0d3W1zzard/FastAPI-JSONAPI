@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable, Literal, Optional, Type, Union
+from typing import Any, Iterable, Literal, Optional, Type
 
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
-from sqlalchemy.exc import DBAPIError, IntegrityError, MissingGreenlet, NoResultFound
+from sqlalchemy.exc import MissingGreenlet
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncSessionTransaction
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import joinedload, selectinload
 from sqlalchemy.orm.attributes import InstrumentedAttribute
 from sqlalchemy.orm.collections import InstrumentedList
-from sqlalchemy.sql import Select, column, distinct
+from sqlalchemy.sql import Select
+from sqlalchemy.sql.expression import BinaryExpression
 
-from fastapi_jsonapi import BadRequest
 from fastapi_jsonapi.data_layers.base import BaseDataLayer
+from fastapi_jsonapi.data_layers.sqla.base_model import BaseSQLA
 from fastapi_jsonapi.data_layers.sqla.query_building import (
     build_filter_expressions,
     build_sort_expressions,
@@ -25,7 +25,6 @@ from fastapi_jsonapi.data_layers.sqla.query_building import (
 )
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.exceptions import (
-    HTTPException,
     InternalServerError,
     InvalidInclude,
     ObjectNotFound,
@@ -33,18 +32,13 @@ from fastapi_jsonapi.exceptions import (
     RelationNotFound,
 )
 from fastapi_jsonapi.models_storage import models_storage
-from fastapi_jsonapi.querystring import PaginationQueryStringManager, QueryStringManager
+from fastapi_jsonapi.querystring import QueryStringManager
 from fastapi_jsonapi.schema import (
     BaseJSONAPIItemInSchema,
-    BaseJSONAPIRelationshipDataToManySchema,
-    BaseJSONAPIRelationshipDataToOneSchema,
 )
 from fastapi_jsonapi.schemas_storage import schemas_storage
-from fastapi_jsonapi.types_metadata import RelationshipInfo
 
 log = logging.getLogger(__name__)
-ActionTrigger = Literal["create", "update"]
-ModelTypeOneOrMany = Union[TypeModel, list[TypeModel]]
 
 
 class SqlalchemyDataLayer(BaseDataLayer):
@@ -90,36 +84,43 @@ class SqlalchemyDataLayer(BaseDataLayer):
             **kwargs,
         )
 
+        self._base_sql = BaseSQLA()
+        self._query = query
+
         self.session = session
         self.eagerload_includes_ = eagerload_includes
-        self._query = query
         self.auto_convert_id_to_column_type = auto_convert_id_to_column_type
         self.transaction: Optional[AsyncSessionTransaction] = None
 
-    async def atomic_start(self, previous_dl: Optional[SqlalchemyDataLayer] = None):
+    async def atomic_start(
+        self,
+        previous_dl: Optional[SqlalchemyDataLayer] = None,
+    ):
         self.is_atomic = True
         if previous_dl:
             self.session = previous_dl.session
             if previous_dl.transaction:
                 self.transaction = previous_dl.transaction
-                return
+                return None
 
         self.transaction = self.session.begin()
         await self.transaction.start()
 
-    async def atomic_end(self, success: bool = True, exception: Optional[Exception] = None):
+    async def atomic_end(
+        self,
+        success: bool = True,
+        exception: Optional[Exception] = None,
+    ):
         if success:
             await self.transaction.commit()
         else:
             await self.transaction.rollback()
 
-    async def save(self):
-        if self.is_atomic:
-            await self.session.flush()
-        else:
-            await self.session.commit()
-
-    def prepare_id_value(self, col: InstrumentedAttribute, value: Any) -> Any:
+    def prepare_id_value(
+        self,
+        col: InstrumentedAttribute,
+        value: Any,
+    ) -> Any:
         """
         Convert value to the required python type.
 
@@ -139,26 +140,11 @@ class SqlalchemyDataLayer(BaseDataLayer):
         return value
 
     @classmethod
-    async def link_relationship_object(
+    async def check_object_has_relationship_or_raise(
         cls,
         obj: TypeModel,
         relation_name: str,
-        related_data: Optional[ModelTypeOneOrMany],
-        action_trigger: ActionTrigger,
     ):
-        """
-        Links target object with relationship object or objects
-
-        :param obj:
-        :param relation_name:
-        :param related_data:
-        :param action_trigger: indicates which one operation triggered relationships applying
-        """
-        # todo: relation name may be different?
-        setattr(obj, relation_name, related_data)
-
-    @classmethod
-    async def check_object_has_relationship_or_raise(cls, obj: TypeModel, relation_name: str):
         """
         Checks that there is relationship with relation_name in obj
 
@@ -176,46 +162,12 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 parameter="include",
             )
 
-    async def get_related_data_to_link(
-        self,
-        related_model: TypeModel,
-        relationship_info: RelationshipInfo,
-        relationship_in: Union[
-            BaseJSONAPIRelationshipDataToOneSchema,
-            BaseJSONAPIRelationshipDataToManySchema,
-        ],
-    ) -> Optional[ModelTypeOneOrMany]:
-        """
-        Retrieves object or objects to link from database
-
-        :param related_model:
-        :param relationship_info:
-        :param relationship_in:
-        """
-        if not relationship_in.data:
-            return [] if relationship_info.many else None
-
-        if relationship_info.many:
-            assert isinstance(relationship_in, BaseJSONAPIRelationshipDataToManySchema)
-            return await self.get_related_objects_list(
-                related_model=related_model,
-                related_id_field=relationship_info.id_field_name,
-                ids=[r.id for r in relationship_in.data],
-            )
-
-        assert isinstance(relationship_in, BaseJSONAPIRelationshipDataToOneSchema)
-        return await self.get_related_object(
-            related_model=related_model,
-            related_id_field=relationship_info.id_field_name,
-            id_value=relationship_in.data.id,
-        )
-
     async def apply_relationships(
         self,
         obj: TypeModel,
         data_create: BaseJSONAPIItemInSchema,
-        action_trigger: ActionTrigger,
-    ) -> None:
+        action_trigger: Literal["create", "update"],
+    ) -> tuple[dict[str, Optional[TypeModel]], dict[str, list[TypeModel]]]:
         """
         Handles relationships passed in request
 
@@ -224,9 +176,11 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param action_trigger: indicates which one operation triggered relationships applying
         :return:
         """
+        to_one: dict = {}
+        to_many: dict = {}
         relationships: BaseModel = data_create.relationships
         if relationships is None:
-            return
+            return to_one, to_many
 
         for relation_name, relationship_in in relationships:
             if relationship_in is None:
@@ -241,17 +195,31 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 log.warning("Not found relationship %s for resource_type %s", relation_name, self.resource_type)
                 continue
 
-            related_model = getattr(type(obj), relation_name).property.mapper.class_
-            related_data = await self.get_related_data_to_link(
-                related_model=related_model,
-                relationship_info=relationship_info,
-                relationship_in=relationship_in,
-            )
+            related_model = models_storage.get_model(relationship_info.resource_type)
+            related_data = []
+            if relationship_in.data:
+                related_data = await self.get_related_objects(
+                    related_model=related_model,
+                    related_id_field=relationship_info.id_field_name,
+                    ids=[r.id for r in relationship_in.data] if relationship_info.many else [relationship_in.data.id],
+                )
 
             await self.check_object_has_relationship_or_raise(obj, relation_name)
-            await self.link_relationship_object(obj, relation_name, related_data, action_trigger)
 
-    async def create_object(self, data_create: BaseJSONAPIItemInSchema, view_kwargs: dict) -> TypeModel:
+            if relationship_info.many:
+                to_many[relation_name] = related_data
+            elif related_data:
+                related_data, *_ = related_data
+                to_one[relation_name] = related_data
+            else:
+                to_one[relation_name] = None
+        return to_one, to_many
+
+    async def create_object(
+        self,
+        data_create: BaseJSONAPIItemInSchema,
+        view_kwargs: dict,
+    ) -> TypeModel:
         """
         Create an object through sqlalchemy.
 
@@ -260,32 +228,22 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :return:
         """
         log.debug("Create object with data %s", data_create)
-        model_kwargs = data_create.attributes.model_dump()
-        model_kwargs = self._apply_client_generated_id(data_create, model_kwargs=model_kwargs)
-        await self.before_create_object(model_kwargs=model_kwargs, view_kwargs=view_kwargs)
+        model_kwargs = self._apply_client_generated_id(data_create, data_create.attributes.model_dump())
+        await self.before_create_object(model_kwargs, view_kwargs)
 
         obj = self.model(**model_kwargs)
-        await self.apply_relationships(obj, data_create, action_trigger="create")
+        to_one, to_many = await self.apply_relationships(obj, data_create, "create")
+        model_kwargs.update({**to_one, **to_many})
+        obj = await self._base_sql.create(
+            session=self.session,
+            model=obj,
+            resource_type=self.resource_type,
+            commit=not self.is_atomic,
+            id_=view_kwargs.get(self.url_id_field),
+            **model_kwargs,
+        )
 
-        self.session.add(obj)
-        try:
-            await self.save()
-        except IntegrityError:
-            log.exception("Could not create object with data create %s", data_create)
-            msg = "Object creation error"
-            raise BadRequest(msg, pointer="/data")
-        except DBAPIError:
-            log.exception("Could not create object with data create %s", data_create)
-            msg = "Object creation error"
-            raise HTTPException(msg, pointer="/data")
-        except Exception as e:
-            log.exception("Error creating object with data create %s", data_create)
-            await self.session.rollback()
-            msg = f"Object creation error: {e}"
-            raise HTTPException(msg, pointer="/data")
-
-        await self.after_create_object(obj=obj, model_kwargs=model_kwargs, view_kwargs=view_kwargs)
-
+        await self.after_create_object(obj, model_kwargs, view_kwargs)
         return obj
 
     def get_object_id_field_name(self):
@@ -296,7 +254,11 @@ class SqlalchemyDataLayer(BaseDataLayer):
         """
         return self.id_name_field or inspect(self.model).primary_key[0].key
 
-    async def get_object(self, view_kwargs: dict, qs: Optional[QueryStringManager] = None) -> TypeModel:
+    async def get_object(
+        self,
+        view_kwargs: dict,
+        qs: Optional[QueryStringManager] = None,
+    ) -> TypeModel:
         """
         Retrieve an object through sqlalchemy.
 
@@ -307,42 +269,33 @@ class SqlalchemyDataLayer(BaseDataLayer):
         await self.before_get_object(view_kwargs)
 
         filter_field = self.get_object_id_field()
-        filter_value = view_kwargs[self.url_id_field]
+        filter_value = self.prepare_id_value(filter_field, view_kwargs[self.url_id_field])
 
-        query = self.retrieve_object_query(view_kwargs, filter_field, filter_value)
-
+        relation_join_objects: list = []
         if qs is not None:
-            query = self.eagerload_includes(query, qs)
+            relation_join_objects = self.eagerload_includes(qs)
 
-        try:
-            obj = (await self.session.execute(query)).scalar_one()
-        except NoResultFound:
-            msg = f"Resource {self.model.__name__} `{filter_value}` not found"
-            raise ObjectNotFound(
-                msg,
-                parameter=self.url_id_field,
-            )
+        query = await self._base_sql.query(
+            model=self.model,
+            filters=[filter_field == filter_value],
+            options=set(relation_join_objects),
+            stmt=self._query,
+        )
+        obj = await self._base_sql.one_or_raise(
+            session=self.session,
+            model=self.model,
+            filters=[filter_field == filter_value],
+            stmt=query,
+        )
 
         await self.after_get_object(obj, view_kwargs)
-
         return obj
 
-    async def get_collection_count(self, query: Select, qs: QueryStringManager, view_kwargs: dict) -> int:
-        """
-        Returns number of elements for this collection
-
-        :param query: SQLAlchemy query
-        :param qs: QueryString
-        :param view_kwargs: view kwargs
-        :return:
-        """
-        if self.disable_collection_count is True:
-            return self.default_collection_count
-
-        count_query = select(func.count(distinct(column("id")))).select_from(query.subquery())
-        return (await self.session.execute(count_query)).scalar_one()
-
-    async def get_collection(self, qs: QueryStringManager, view_kwargs: Optional[dict] = None) -> tuple[int, list]:
+    async def get_collection(
+        self,
+        qs: QueryStringManager,
+        view_kwargs: Optional[dict] = None,
+    ) -> tuple[int, list]:
         """
         Retrieve a collection of objects through sqlalchemy.
 
@@ -351,22 +304,46 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :return: the number of object and the list of objects.
         """
         view_kwargs = view_kwargs or {}
-
         await self.before_get_collection(qs, view_kwargs)
+        relationship_paths = prepare_relationships_info(
+            model=self.model,
+            schema=self.schema,
+            resource_type=self.resource_type,
+            filter_info=qs.filters,
+            sorting_info=qs.sorts,
+        )
+        relationships_info = [
+            relationships_info_storage.get_info(self.resource_type, relationship_path)
+            for relationship_path in relationship_paths
+        ]
 
-        query = self.apply_filters_and_sorts(self.query(view_kwargs), qs)
-
-        objects_count = await self.get_collection_count(query, qs, view_kwargs)
-
+        relation_join_objects: list = []
         if self.eagerload_includes_:
-            query = self.eagerload_includes(query, qs)
+            relation_join_objects = self.eagerload_includes(qs)
 
-        query = self.paginate_query(query, qs.pagination)
+        query = await self._base_sql.query(
+            model=self.model,
+            filters=self.get_filter_expressions(qs),
+            join=relationships_info,
+            number=qs.pagination.number,
+            options=set(relation_join_objects),
+            order=self.get_sort_expressions(qs),
+            size=qs.pagination.size,
+            stmt=self._query,
+        )
+        collection = await self._base_sql.all(
+            session=self.session,
+            stmt=query,
+        )
 
-        collection = (await self.session.execute(query)).unique().scalars().all()
+        objects_count = self.default_collection_count
+        if not self.disable_collection_count:
+            objects_count = await self._base_sql.count(
+                session=self.session,
+                stmt=query,
+            )
 
         collection = await self.after_get_collection(collection, qs, view_kwargs)
-
         return objects_count, list(collection)
 
     async def update_object(
@@ -384,57 +361,27 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :return: True if object have changed else False.
         """
         new_data = data_update.attributes.model_dump(exclude_unset=True)
+        to_one, to_many = await self.apply_relationships(obj, data_update, "update")
+        await self.before_update_object(obj, new_data, view_kwargs)
 
-        await self.apply_relationships(obj, data_update, action_trigger="update")
+        new_data.update({**to_one, **to_many})
+        obj = await self._base_sql.update(
+            session=self.session,
+            model=obj,
+            resource_type=self.resource_type,
+            commit=not self.is_atomic,
+            id_=view_kwargs.get(self.url_id_field),
+            **new_data,
+        )
 
-        await self.before_update_object(obj, model_kwargs=new_data, view_kwargs=view_kwargs)
+        await self.after_update_object(obj, new_data, view_kwargs)
+        return obj
 
-        missing = object()
-
-        has_updated = False
-        for field_name, new_value in new_data.items():
-            # TODO: get field alias (if present) and get attribute by alias (rarely used, but required)
-
-            if (old_value := getattr(obj, field_name, missing)) is missing:
-                log.warning("No field %r on %s. Make sure schema conforms model.", field_name, type(obj))
-                continue
-
-            if old_value != new_value:
-                setattr(obj, field_name, new_value)
-                has_updated = True
-        try:
-            await self.save()
-        except IntegrityError:
-            log.exception("Could not update object with data update %s", data_update)
-            msg = "Object update error"
-            raise BadRequest(
-                msg,
-                pointer="/data",
-                meta={
-                    "type": self.resource_type,
-                    "id": view_kwargs.get(self.url_id_field),
-                },
-            )
-        except DBAPIError as e:
-            await self.session.rollback()
-
-            err_message = f"Got an error {e.__class__.__name__} during updating obj {view_kwargs} data in DB"
-            log.exception(err_message, exc_info=e)
-
-            raise InternalServerError(
-                detail=err_message,
-                pointer="/data",
-                meta={
-                    "type": self.resource_type,
-                    "id": view_kwargs.get(self.url_id_field),
-                },
-            )
-
-        await self.after_update_object(obj=obj, model_kwargs=new_data, view_kwargs=view_kwargs)
-
-        return has_updated
-
-    async def delete_object(self, obj: TypeModel, view_kwargs: dict):
+    async def delete_object(
+        self,
+        obj: TypeModel,
+        view_kwargs: dict,
+    ):
         """
         Delete an object through sqlalchemy.
 
@@ -442,40 +389,35 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
         await self.before_delete_object(obj, view_kwargs)
-        stmt = delete(self.model).where(self.model.id == obj.id)
 
-        try:
-            await self.session.execute(stmt)
-            await self.save()
-        except DBAPIError as e:
-            await self.session.rollback()
-
-            err_message = f"Got an error {e.__class__.__name__} deleting object {view_kwargs}"
-            log.exception(err_message, exc_info=e)
-
-            raise InternalServerError(
-                detail=err_message,
-                pointer="/data",
-                meta={
-                    "type": self.resource_type,
-                    "id": view_kwargs.get(self.url_id_field),
-                },
-            )
+        await self._base_sql.delete(
+            session=self.session,
+            model=self.model,
+            filters=[self.model.id == obj.id],
+            resource_type=self.resource_type,
+            commit=not self.is_atomic,
+            id_=view_kwargs.get(self.url_id_field),
+            **view_kwargs,
+        )
 
         await self.after_delete_object(obj, view_kwargs)
 
-    async def delete_objects(self, objects: list[TypeModel], view_kwargs: dict):
+    async def delete_objects(
+        self,
+        objects: list[TypeModel],
+        view_kwargs: dict,
+    ):
         await self.before_delete_objects(objects, view_kwargs)
-        query = delete(self.model).filter(self.model.id.in_((obj.id for obj in objects)))
 
-        try:
-            await self.session.execute(query)
-            await self.save()
-        except DBAPIError as e:
-            await self.session.rollback()
-            raise InternalServerError(
-                detail=f"Got an error {e.__class__.__name__} during delete data from DB: {e!s}.",
-            )
+        await self._base_sql.delete(
+            session=self.session,
+            model=self.model,
+            filters=[self.model.id.in_((obj.id for obj in objects))],
+            resource_type=self.resource_type,
+            commit=not self.is_atomic,
+            id_=view_kwargs.get(self.url_id_field),
+            **view_kwargs,
+        )
 
         await self.after_delete_objects(objects, view_kwargs)
 
@@ -517,8 +459,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
         obj = await self.get_object(view_kwargs)
 
         if obj is None:
-            filter_value = view_kwargs[self.url_id_field]
-            msg = f"{self.model.__name__}: {filter_value} not found"
+            msg = f"{self.model.__name__}: {view_kwargs[self.url_id_field]} not found"
             raise ObjectNotFound(
                 msg,
                 parameter=self.url_id_field,
@@ -528,9 +469,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
             msg = f"{obj.__class__.__name__} has no attribute {relationship_field}"
             raise RelationNotFound(msg)
 
-        related_objects = getattr(obj, relationship_field)
-
-        if related_objects is None:
+        if (related_objects := getattr(obj, relationship_field)) is None:
             return obj, related_objects
 
         await self.after_get_relationship(
@@ -579,69 +518,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
 
-    def get_related_model_query_base(
-        self,
-        related_model: TypeModel,
-    ) -> Select:
-        """
-        Prepare sql query (statement) to fetch related model
-
-        :param related_model:
-        :return:
-        """
-        return select(related_model)
-
-    def get_related_object_query(
-        self,
-        related_model: TypeModel,
-        related_id_field: str,
-        id_value: str,
-    ):
-        id_field = getattr(related_model, related_id_field)
-        id_value = self.prepare_id_value(id_field, id_value)
-        stmt: Select = self.get_related_model_query_base(related_model)
-        return stmt.where(id_field == id_value)
-
-    def get_related_objects_list_query(
-        self,
-        related_model: TypeModel,
-        related_id_field: str,
-        ids: list[str],
-    ) -> tuple[Select, list[str]]:
-        id_field = getattr(related_model, related_id_field)
-        prepared_ids = [self.prepare_id_value(id_field, _id) for _id in ids]
-        stmt: Select = self.get_related_model_query_base(related_model)
-        return stmt.where(id_field.in_(prepared_ids)), prepared_ids
-
-    async def get_related_object(
-        self,
-        related_model: TypeModel,
-        related_id_field: str,
-        id_value: str,
-    ) -> TypeModel:
-        """
-        Get related object.
-
-        :param related_model: SQLA ORM model class
-        :param related_id_field: id field of the related model (usually it's `id`)
-        :param id_value: related object id value
-        :return: a related SQLA ORM object
-        """
-        stmt = self.get_related_object_query(
-            related_model=related_model,
-            related_id_field=related_id_field,
-            id_value=id_value,
-        )
-
-        try:
-            related_object = (await self.session.execute(stmt)).scalar_one()
-        except NoResultFound:
-            msg = f"{related_model.__name__}.{related_id_field}: {id_value} not found"
-            raise RelatedObjectNotFound(msg)
-
-        return related_object
-
-    async def get_related_objects_list(
+    async def get_related_objects(
         self,
         related_model: TypeModel,
         related_id_field: str,
@@ -655,85 +532,65 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param ids:
         :return:
         """
-        stmt, ids = self.get_related_objects_list_query(
-            related_model=related_model,
-            related_id_field=related_id_field,
-            ids=ids,
+        id_field = getattr(related_model, related_id_field)
+        id_values = [self.prepare_id_value(id_field, id_) for id_ in ids]
+
+        query = await self._base_sql.query(
+            model=related_model,
+            filters=[id_field.in_(id_values)],
+        )
+        related_objects = await self._base_sql.all(
+            session=self.session,
+            stmt=query,
         )
 
-        related_objects = (await self.session.execute(stmt)).scalars().all()
-        object_ids = [getattr(obj, related_id_field) for obj in related_objects]
-
-        not_found_ids = ids
-        if object_ids:
-            not_found_ids = set(ids).difference(object_ids)
-
-        if not_found_ids:
+        objects = {f"{getattr(obj, related_id_field)}" for obj in related_objects}
+        if not_found_ids := set(ids).difference(objects):
             msg = f"Objects for {related_model.__name__} with ids: {list(not_found_ids)} not found"
-            raise RelatedObjectNotFound(detail=msg, pointer="/data")
+            raise RelatedObjectNotFound(
+                detail=msg,
+                pointer="/data",
+            )
 
         return list(related_objects)
 
-    def apply_filters_and_sorts(self, query: Select, qs: QueryStringManager):
-        filters, sorts = qs.filters, qs.sorts
+    def get_filter_expressions(
+        self,
+        qs: QueryStringManager,
+    ) -> Optional[list[BinaryExpression]]:
+        if qs.filters:
+            return [
+                build_filter_expressions(
+                    filter_item={"and": qs.filters},
+                    target_model=self.model,
+                    target_schema=self.schema,
+                    entrypoint_resource_type=self.resource_type,
+                ),
+            ]
 
-        relationship_paths = prepare_relationships_info(
-            model=self.model,
-            schema=self.schema,
-            resource_type=self.resource_type,
-            filter_info=filters,
-            sorting_info=sorts,
-        )
-
-        for relationship_path in relationship_paths:
-            info = relationships_info_storage.get_info(self.resource_type, relationship_path)
-            query = query.join(info.aliased_model, info.join_column)
-
-        if filters:
-            filter_expressions = build_filter_expressions(
-                filter_item={"and": filters},
+    def get_sort_expressions(
+        self,
+        qs: QueryStringManager,
+    ) -> Optional[list]:
+        if qs.sorts:
+            return build_sort_expressions(
+                sort_items=qs.sorts,
                 target_model=self.model,
                 target_schema=self.schema,
                 entrypoint_resource_type=self.resource_type,
             )
-            query = query.where(filter_expressions)
 
-        if sorts:
-            sort_expressions = build_sort_expressions(
-                sort_items=sorts,
-                target_model=self.model,
-                target_schema=self.schema,
-                entrypoint_resource_type=self.resource_type,
-            )
-            query = query.order_by(*sort_expressions)
-
-        return query
-
-    def paginate_query(self, query: Select, paginate_info: PaginationQueryStringManager) -> Select:
-        """
-        Paginate query according to jsonapi 1.0.
-
-        :param query: sqlalchemy queryset.
-        :param paginate_info: pagination information.
-        :return: the paginated query
-        """
-        if paginate_info.size == 0 or paginate_info.size is None:
-            return query
-
-        query = query.limit(paginate_info.size)
-        if paginate_info.number:
-            query = query.offset((paginate_info.number - 1) * paginate_info.size)
-
-        return query
-
-    def eagerload_includes(self, query: Select, qs: QueryStringManager) -> Select:
+    def eagerload_includes(
+        self,
+        qs: QueryStringManager,
+    ):
         """
         Use eagerload feature of sqlalchemy to optimize data retrieval for include querystring parameter.
 
-        :param query: sqlalchemy queryset.
         :param qs: a querystring manager to retrieve information from url.
         :return: the query with includes eagerloaded.
         """
+        relation_join_objects = []
         for include in qs.include:
             relation_join_object = None
 
@@ -751,9 +608,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
                         f"Not found relationship {related_field_name!r} from include {include!r} "
                         f"for resource_type {current_resource_type!r}."
                     )
-                    raise InvalidInclude(
-                        msg,
-                    )
+                    raise InvalidInclude(msg)
 
                 field_to_load: InstrumentedAttribute = getattr(current_model, related_field_name)
                 is_many = field_to_load.property.uselist
@@ -767,39 +622,15 @@ class SqlalchemyDataLayer(BaseDataLayer):
                 current_resource_type = relationship_info.resource_type
                 current_model = models_storage.get_model(current_resource_type)
 
-            query = query.options(relation_join_object)
+            relation_join_objects.append(relation_join_object)
 
-        return query
+        return relation_join_objects
 
-    def retrieve_object_query(
+    async def before_create_object(
         self,
+        model_kwargs: dict,
         view_kwargs: dict,
-        filter_field: InstrumentedAttribute,
-        filter_value: Any,
-    ) -> Select:
-        """
-        Build query to retrieve object.
-
-        :param view_kwargs: kwargs from the resource view
-        :param filter_field: the field to filter on
-        :param filter_value: the value to filter with
-        :return sqlalchemy query: a query from sqlalchemy
-        """
-        value = self.prepare_id_value(filter_field, filter_value)
-        query: Select = self.query(view_kwargs).where(filter_field == value)
-        return query
-
-    def query(self, view_kwargs: dict) -> Select:
-        """
-        Construct the base query to retrieve wanted data.
-
-        :param view_kwargs: kwargs from the resource view
-        """
-        if self._query is not None:
-            return self._query
-        return select(self.model)
-
-    async def before_create_object(self, model_kwargs: dict, view_kwargs: dict):
+    ):
         """
         Provide additional data before object creation.
 
@@ -810,7 +641,12 @@ class SqlalchemyDataLayer(BaseDataLayer):
             model_field = self.get_object_id_field()
             model_kwargs.update(id=self.prepare_id_value(model_field, id_value))
 
-    async def after_create_object(self, obj: TypeModel, model_kwargs: dict, view_kwargs: dict):
+    async def after_create_object(
+        self,
+        obj: TypeModel,
+        model_kwargs: dict,
+        view_kwargs: dict,
+    ):
         """
         Provide additional data after object creation.
 
@@ -819,14 +655,21 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
 
-    async def before_get_object(self, view_kwargs: dict):
+    async def before_get_object(
+        self,
+        view_kwargs: dict,
+    ):
         """
         Make work before to retrieve an object.
 
         :param view_kwargs: kwargs from the resource view.
         """
 
-    async def after_get_object(self, obj: Any, view_kwargs: dict):
+    async def after_get_object(
+        self,
+        obj: Any,
+        view_kwargs: dict,
+    ):
         """
         Make work after to retrieve an object.
 
@@ -834,7 +677,11 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
 
-    async def before_get_collection(self, qs: QueryStringManager, view_kwargs: dict):
+    async def before_get_collection(
+        self,
+        qs: QueryStringManager,
+        view_kwargs: dict,
+    ):
         """
         Make work before to retrieve a collection of objects.
 
@@ -842,7 +689,12 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
 
-    async def after_get_collection(self, collection: Iterable, qs: QueryStringManager, view_kwargs: dict):
+    async def after_get_collection(
+        self,
+        collection: Iterable,
+        qs: QueryStringManager,
+        view_kwargs: dict,
+    ):
         """
         Make work after to retrieve a collection of objects.
 
@@ -852,7 +704,12 @@ class SqlalchemyDataLayer(BaseDataLayer):
         """
         return collection
 
-    async def before_update_object(self, obj: Any, model_kwargs: dict, view_kwargs: dict):
+    async def before_update_object(
+        self,
+        obj: Any,
+        model_kwargs: dict,
+        view_kwargs: dict,
+    ):
         """
         Make checks or provide additional data before update object.
 
@@ -861,7 +718,12 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
 
-    async def after_update_object(self, obj: Any, model_kwargs: dict, view_kwargs: dict):
+    async def after_update_object(
+        self,
+        obj: Any,
+        model_kwargs: dict,
+        view_kwargs: dict,
+    ):
         """
         Make work after update object.
 
@@ -870,7 +732,11 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
 
-    async def before_delete_object(self, obj: TypeModel, view_kwargs: dict):
+    async def before_delete_object(
+        self,
+        obj: TypeModel,
+        view_kwargs: dict,
+    ):
         """
         Make checks before delete object.
 
@@ -878,7 +744,11 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
 
-    async def after_delete_object(self, obj: TypeModel, view_kwargs: dict):
+    async def after_delete_object(
+        self,
+        obj: TypeModel,
+        view_kwargs: dict,
+    ):
         """
         Make work after delete object.
 
@@ -886,7 +756,11 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
 
-    async def before_delete_objects(self, objects: list[TypeModel], view_kwargs: dict):
+    async def before_delete_objects(
+        self,
+        objects: list[TypeModel],
+        view_kwargs: dict,
+    ):
         """
         Make checks before deleting objects.
 
@@ -894,7 +768,11 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param view_kwargs: kwargs from the resource view.
         """
 
-    async def after_delete_objects(self, objects: list[TypeModel], view_kwargs: dict):
+    async def after_delete_objects(
+        self,
+        objects: list[TypeModel],
+        view_kwargs: dict,
+    ):
         """
         Any actions after deleting objects.
 

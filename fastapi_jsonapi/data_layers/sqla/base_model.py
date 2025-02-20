@@ -36,15 +36,11 @@ class BaseSQLA:
     def _fill(
         cls,
         model: TypeModel,
-        relationships: list[tuple[str, TypeModel]],
         **kwargs,
     ) -> None:
         for key, value in kwargs.items():
             cls._check_field_exists(model, key)
             setattr(model, key, value)
-        for relation_name, related_data in relationships:
-            cls._check_field_exists(model, relation_name)
-            setattr(model, relation_name, related_data)
 
     @classmethod
     async def _save(
@@ -111,12 +107,11 @@ class BaseSQLA:
         session: AsyncSession,
         model: TypeModel,
         resource_type: str,
-        relationships: list[tuple[str, TypeModel]],
         commit: bool = True,
         id_: Optional[str] = None,
         **kwargs,
     ) -> TypeModel:
-        cls._fill(model, relationships, **kwargs)
+        cls._fill(model, **kwargs)
         session.add(model)
         return await cls._save(
             session=session,
@@ -219,12 +214,11 @@ class BaseSQLA:
         session: AsyncSession,
         model: TypeModel,
         resource_type: str,
-        relationships: list[tuple[str, TypeModel]],
         commit: bool = True,
         id_: Optional[str] = None,
         **kwargs,
     ) -> TypeModel:
-        cls._fill(model, relationships, **kwargs)
+        cls._fill(model, **kwargs)
         session.add(model)
         return await cls._save(
             session=session,

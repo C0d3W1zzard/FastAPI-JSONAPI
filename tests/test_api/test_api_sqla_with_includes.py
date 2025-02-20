@@ -2,7 +2,7 @@ import logging
 from collections import defaultdict
 from contextlib import suppress
 from datetime import datetime, timezone
-from itertools import chain, zip_longest
+from itertools import chain
 from typing import Annotated, Literal
 from unittest import mock
 from unittest.mock import call
@@ -1036,10 +1036,10 @@ async def test_get_user_not_found(app: FastAPI, client: AsyncClient):
     assert res.json() == {
         "errors": [
             {
-                "detail": f"Resource User `{fake_id}` not found",
+                "detail": f"Resource User `users.id = {fake_id}` not found",
                 "title": "Resource not found.",
                 "status_code": status.HTTP_404_NOT_FOUND,
-                "meta": {"parameter": "id"},
+                "meta": {"pointer": ""},
             },
         ],
     }
@@ -1626,39 +1626,6 @@ class TestPatchObjects:
             "meta": None,
         }
 
-    async def test_do_nothing_with_field_not_presented_in_model(
-        self,
-        user_1: User,
-    ):
-        class UserPatchSchemaWithExtraAttribute(UserPatchSchema):
-            attr_which_is_not_presented_in_model: str
-
-        resource_type = "user_custom_a"
-        app = build_app_custom(
-            model=User,
-            schema=UserSchema,
-            schema_in_post=UserPatchSchemaWithExtraAttribute,
-            schema_in_patch=UserPatchSchemaWithExtraAttribute,
-            resource_type=resource_type,
-        )
-        new_attrs = UserPatchSchemaWithExtraAttribute(
-            name=fake.name(),
-            age=fake.pyint(),
-            email=fake.email(),
-            attr_which_is_not_presented_in_model=fake.name(),
-        ).model_dump()
-
-        patch_user_body = {
-            "data": {
-                "id": f"{user_1.id}",
-                "attributes": new_attrs,
-            },
-        }
-        async with AsyncClient(app=app, base_url="http://test") as client:
-            url = app.url_path_for(f"update_{resource_type}_detail", obj_id=user_1.id)
-            res = await client.patch(url, json=patch_user_body)
-            assert res.status_code == status.HTTP_200_OK, res.text
-
     async def test_update_schema_has_extra_fields(self, user_1: User, caplog):
         resource_type = "user_extra_fields"
         app = build_app_custom(
@@ -1685,24 +1652,8 @@ class TestPatchObjects:
             url = app.url_path_for(f"update_{resource_type}_detail", obj_id=user_1.id)
             res = await client.patch(url, json=create_body)
 
-        assert res.status_code == status.HTTP_200_OK, res.text
-        assert res.json() == {
-            "data": {
-                "attributes": UserAttributesBaseSchema(**new_attributes.model_dump()).model_dump(),
-                "id": f"{user_1.id}",
-                "type": resource_type,
-            },
-            "jsonapi": {"version": "1.0"},
-            "meta": None,
-        }
-
-        messages = [x.message for x in caplog.get_records("call") if x.levelno == logging.WARNING]
-        messages.sort()
-        for log_message, expected in zip_longest(
-            messages,
-            sorted([f"No field {name!r}" for name in ("spam", "eggs")]),
-        ):
-            assert expected in log_message
+        assert res.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert res.json()["errors"][0]["detail"] == "No fields `spam` on `User`. Make sure schema conforms model."
 
     async def test_select_custom_fields(
         self,
@@ -1955,7 +1906,7 @@ class TestPatchObjectRelationshipsToOne:
         assert res.json() == {
             "errors": [
                 {
-                    "detail": "Object update error",
+                    "detail": "Could not update object",
                     "source": {"pointer": "/data"},
                     "status_code": status.HTTP_400_BAD_REQUEST,
                     "title": "Bad Request",
@@ -2004,8 +1955,8 @@ class TestPatchObjectRelationshipsToOne:
         assert res.json() == {
             "errors": [
                 {
-                    "detail": f"Workplace.id: {fake_relationship_id} not found",
-                    "source": {"pointer": ""},
+                    "detail": f"Objects for Workplace with ids: ['{fake_relationship_id}'] not found",
+                    "source": {"pointer": "/data"},
                     "status_code": status.HTTP_404_NOT_FOUND,
                     "title": "Related object not found.",
                 },
@@ -2270,7 +2221,7 @@ class TestPatchRelationshipsToMany:
         assert res.json() == {
             "errors": [
                 {
-                    "detail": f"Objects for Computer with ids: [{fake_computer_id}] not found",
+                    "detail": f"Objects for Computer with ids: ['{fake_computer_id}'] not found",
                     "source": {"pointer": "/data"},
                     "status_code": status.HTTP_404_NOT_FOUND,
                     "title": "Related object not found.",

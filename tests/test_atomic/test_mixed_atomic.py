@@ -236,7 +236,7 @@ class TestAtomicMixedActions:
         assert cnt == 0, "no computers have to be created"
         assert errors == [
             {
-                "detail": "Object update error",
+                "detail": "Could not update object",
                 "source": {"pointer": "/data"},
                 "status_code": status.HTTP_400_BAD_REQUEST,
                 "title": "Bad Request",
