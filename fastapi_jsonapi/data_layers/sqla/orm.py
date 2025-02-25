@@ -175,8 +175,7 @@ class SqlalchemyDataLayer(BaseDataLayer):
         :param action_trigger: indicates which one operation triggered relationships applying
         :return:
         """
-        to_one: dict = {}
-        to_many: dict = {}
+        to_one, to_many = {}, {}
         relationships: BaseModel = data_create.relationships
         if relationships is None:
             return to_one, to_many

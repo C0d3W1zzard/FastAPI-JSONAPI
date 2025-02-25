@@ -36,12 +36,12 @@ from fastapi_jsonapi.types_metadata.custom_sort_sql import sql_register_free_sor
 from tests.common import is_postgres_tests
 from tests.fixtures.app import build_alphabet_app, build_app_custom
 from tests.fixtures.entities import (
-    build_post,
-    build_post_comment,
-    build_workplace,
     create_computer,
+    create_post,
+    create_post_comment,
     create_user,
     create_user_bio,
+    create_workplace,
 )
 from tests.fixtures.models import (
     Alpha,
@@ -217,11 +217,11 @@ class TestGetUsersList:
         url = app.url_path_for("get_user_list")
         user_1, user_2 = sorted((user_1, user_2), key=lambda x: x.id)
 
-        user_2_post = await build_post(async_session, user_2)
-        user_1_post = await build_post(async_session, user_1)
+        user_2_post = await create_post(async_session, user_2)
+        user_1_post = await create_post(async_session, user_1)
 
-        user_1_comment = await build_post_comment(async_session, user_1, user_2_post)
-        user_2_comment = await build_post_comment(async_session, user_2, user_1_post)
+        user_1_comment = await create_post_comment(async_session, user_1, user_2_post)
+        user_2_comment = await create_post_comment(async_session, user_2, user_1_post)
 
         queried_user_fields = "name"
         queried_post_fields = "title"
@@ -2931,10 +2931,10 @@ class TestFilters:
         workplace_name = "Common workplace name"
 
         workplace_1, workplace_2, workplace_3, workplace_4 = (
-            await build_workplace(async_session, name=workplace_name),
-            await build_workplace(async_session, name=workplace_name),
-            await build_workplace(async_session, name=workplace_name),
-            await build_workplace(async_session, name=workplace_name),
+            await create_workplace(async_session, name=workplace_name),
+            await create_workplace(async_session, name=workplace_name),
+            await create_workplace(async_session, name=workplace_name),
+            await create_workplace(async_session, name=workplace_name),
         )
 
         user_1, user_2, _, user_4 = (

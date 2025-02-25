@@ -15,6 +15,8 @@ from examples.api_for_sqlalchemy.models import (
     UserBio,
     Workplace,
 )
+from tests.common import is_postgres_tests
+from tests.fixtures.models import Task
 from tests.misc.utils import fake
 
 
@@ -47,11 +49,7 @@ async def create_user(async_session: AsyncSession, **fields) -> User:
 
 
 async def create_user_bio(async_session: AsyncSession, user: User, **fields) -> UserBio:
-    fields = {
-        "user": user,
-        **fields,
-    }
-    user_bio = build_user_bio(**fields)
+    user_bio = build_user_bio(user=user, **fields)
     async_session.add(user_bio)
     await async_session.commit()
     return user_bio
@@ -120,16 +118,17 @@ async def user_2_bio(async_session: AsyncSession, user_2: User) -> UserBio:
     )
 
 
-async def build_post(async_session: AsyncSession, user: User, **fields) -> Post:
+def build_post(user: User, **fields) -> Post:
     fields = {
         "title": fake.name(),
         "body": fake.sentence(),
         **fields,
     }
-    post = Post(
-        user=user,
-        **fields,
-    )
+    return Post(user=user, **fields)
+
+
+async def create_post(async_session: AsyncSession, user: User, **fields) -> Post:
+    post = build_post(user, **fields)
     async_session.add(post)
     await async_session.commit()
     return post
@@ -244,21 +243,25 @@ async def computer_factory(async_session: AsyncSession) -> Callable[[Optional[st
     return factory
 
 
-async def build_post_comment(
+def build_post_comment(user: User, post: Post, **fields) -> PostComment:
+    fields = {
+        "text": fake.sentence(),
+        **fields,
+    }
+    return PostComment(
+        user=user,
+        post=post,
+        **fields,
+    )
+
+
+async def create_post_comment(
     async_session: AsyncSession,
     user: User,
     post: Post,
     **fields,
 ) -> PostComment:
-    fields = {
-        "text": fake.sentence(),
-        **fields,
-    }
-    post_comment = PostComment(
-        user=user,
-        post=post,
-        **fields,
-    )
+    post_comment = build_post_comment(user=user, post=post, **fields)
     async_session.add(post_comment)
     await async_session.commit()
     return post_comment
@@ -478,8 +481,59 @@ async def p2_c3_association(
     await async_session.commit()
 
 
-async def build_workplace(async_session: AsyncSession, **fields):
-    workplace = Workplace(**fields)
+def build_task(**fields):
+    return Task(**fields)
+
+
+async def create_task(async_session: AsyncSession, **fields):
+    task = build_task(**fields)
+    async_session.add(task)
+    await async_session.commit()
+    return task
+
+
+@async_fixture()
+async def task_1(
+    async_session: AsyncSession,
+):
+    fields = {
+        "task_ids_list_json": [1, 2, 3],
+        "task_ids_dict_json": {"completed": [1, 2, 3], "count": 1, "is_complete": True},
+    }
+    if is_postgres_tests():
+        fields.update(
+            {
+                "task_ids_list_jsonb": ["a", "b", "c"],
+                "task_ids_dict_jsonb": {"completed": ["a", "b", "c"], "count": 2, "is_complete": True},
+            },
+        )
+    yield await create_task(async_session, **fields)
+
+
+@async_fixture()
+async def task_2(
+    async_session: AsyncSession,
+):
+    fields = {
+        "task_ids_list_json": [4, 5, 6],
+        "task_ids_dict_json": {"completed": [4, 5, 6], "count": 3, "is_complete": False},
+    }
+    if is_postgres_tests():
+        fields.update(
+            {
+                "task_ids_list_jsonb": ["d", "e", "f"],
+                "task_ids_dict_jsonb": {"completed": ["d", "e", "f"], "count": 4, "is_complete": False},
+            },
+        )
+    yield await create_task(async_session, **fields)
+
+
+def build_workplace(**fields):
+    return Workplace(**fields)
+
+
+async def create_workplace(async_session: AsyncSession, **fields):
+    workplace = build_workplace(**fields)
     async_session.add(workplace)
     await async_session.commit()
     return workplace
@@ -489,11 +543,11 @@ async def build_workplace(async_session: AsyncSession, **fields):
 async def workplace_1(
     async_session: AsyncSession,
 ):
-    yield await build_workplace(async_session, name="workplace_1")
+    yield await create_workplace(async_session, name="workplace_1")
 
 
 @async_fixture()
 async def workplace_2(
     async_session: AsyncSession,
 ):
-    yield await build_workplace(async_session, name="workplace_2")
+    yield await create_workplace(async_session, name="workplace_2")

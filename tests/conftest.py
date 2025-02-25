@@ -35,6 +35,8 @@ from tests.fixtures.entities import (  # noqa
     parent_1,
     parent_2,
     parent_3,
+    task_1,
+    task_2,
     user_1,
     user_1_bio,
     user_1_comments_for_u2_posts,

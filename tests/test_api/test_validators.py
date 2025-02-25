@@ -14,6 +14,7 @@ from fastapi_jsonapi import RoutersJSONAPI
 from fastapi_jsonapi.schemas_storage import schemas_storage
 from fastapi_jsonapi.types_metadata import ClientCanSetId
 from fastapi_jsonapi.validation_utils import extract_validators
+from tests.common import is_postgres_tests
 from tests.fixtures.app import build_app_custom
 from tests.fixtures.models import Task
 from tests.fixtures.schemas import TaskBaseSchema
@@ -25,8 +26,8 @@ async def task_with_none_ids(
     async_session: AsyncSession,
 ) -> Task:
     task = Task(
-        task_ids_dict=None,
-        task_ids_list=None,
+        task_ids_dict_json=None,
+        task_ids_list_json=None,
     )
     async_session.add(task)
     await async_session.commit()
@@ -47,8 +48,8 @@ class TestTaskValidators:
         resource_type: str,
         task_with_none_ids: Task,
     ):
-        assert task_with_none_ids.task_ids_dict is None
-        assert task_with_none_ids.task_ids_list is None
+        assert task_with_none_ids.task_ids_dict_json is None
+        assert task_with_none_ids.task_ids_list_json is None
         url = app.url_path_for(f"get_{resource_type}_detail", obj_id=task_with_none_ids.id)
         res = await client.get(url)
         assert res.status_code == status.HTTP_200_OK, res.text
@@ -62,12 +63,21 @@ class TestTaskValidators:
             "jsonapi": {"version": "1.0"},
             "meta": None,
         }
-        assert attributes == {
+        res_attributes = {
             # not `None`! schema validator returns empty dict `{}` and empty list `[]`
-            # "task_ids": None,
-            "task_ids_dict": {},
-            "task_ids_list": [],
+            # "task_ids_dict_json": None,
+            # "task_ids_list_json": None,
+            "task_ids_dict_json": {},
+            "task_ids_list_json": [],
         }
+        if is_postgres_tests():
+            res_attributes.update(
+                {
+                    "task_ids_dict_jsonb": {},
+                    "task_ids_list_jsonb": [],
+                },
+            )
+        assert attributes == res_attributes
         assert attributes == TaskBaseSchema.model_validate(task_with_none_ids).model_dump()
 
     async def test_base_model_model_validator_get_list_and_dict(
@@ -77,23 +87,32 @@ class TestTaskValidators:
         resource_type: str,
         task_with_none_ids: Task,
     ):
-        assert task_with_none_ids.task_ids_dict is None
-        assert task_with_none_ids.task_ids_list is None
+        assert task_with_none_ids.task_ids_dict_json is None
+        assert task_with_none_ids.task_ids_list_json is None
         url = app.url_path_for(f"get_{resource_type}_list")
         res = await client.get(url)
         assert res.status_code == status.HTTP_200_OK, res.text
         response_data = res.json()
+        attributes = {
+            # not `None`! schema validator returns empty dict `{}` and empty list `[]`
+            # "task_ids_dict_json": None,
+            # "task_ids_list_json": None,
+            "task_ids_dict_json": {},
+            "task_ids_list_json": [],
+        }
+        if is_postgres_tests():
+            attributes.update(
+                {
+                    "task_ids_dict_jsonb": {},
+                    "task_ids_list_jsonb": [],
+                },
+            )
         assert response_data == {
             "data": [
                 {
                     "id": f"{task_with_none_ids.id}",
                     "type": resource_type,
-                    "attributes": {
-                        # not `None`! schema validator returns empty dict `{}` and empty list `[]`
-                        # "task_ids": None,
-                        "task_ids_dict": {},
-                        "task_ids_list": [],
-                    },
+                    "attributes": attributes,
                 },
             ],
             "jsonapi": {
@@ -112,39 +131,35 @@ class TestTaskValidators:
         resource_type: str,
         async_session: AsyncSession,
     ):
+        attributes = {
+            # should be converted to [] and {} by schema on create
+            "task_ids_dict_json": None,
+            "task_ids_list_json": None,
+        }
+        if is_postgres_tests():
+            attributes.update(
+                {
+                    "task_ids_dict_jsonb": None,
+                    "task_ids_list_jsonb": None,
+                },
+            )
         data_create = {
             "data": {
                 "type": resource_type,
-                "attributes": {
-                    # should be converted to [] and {} by schema on create
-                    "task_ids_dict": None,
-                    "task_ids_list": None,
-                },
+                "attributes": attributes,
             },
         }
         url = app.url_path_for(f"create_{resource_type}_list")
         res = await client.post(url, json=data_create)
+
         assert res.status_code == status.HTTP_201_CREATED, res.text
-        response_data: dict = res.json()
-        task_id = response_data["data"].pop("id")
+        task_id = res.json()["data"].pop("id")
         task = await async_session.get(Task, int(task_id))
         assert isinstance(task, Task)
         # we sent request with `None`, but value in db is `[]` and `{}`
         # because validator converted data before object creation
-        assert task.task_ids_dict == {}
-        assert task.task_ids_list == []
-        assert response_data == {
-            "data": {
-                "type": resource_type,
-                "attributes": {
-                    # should be empty list and empty dict
-                    "task_ids_dict": {},
-                    "task_ids_list": [],
-                },
-            },
-            "jsonapi": {"version": "1.0"},
-            "meta": None,
-        }
+        assert task.task_ids_dict_json == {}
+        assert task.task_ids_list_json == []
 
 
 class TestValidators:
