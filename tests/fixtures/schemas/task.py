@@ -12,12 +12,22 @@ class TaskBaseSchema(BaseModel):
         from_attributes=True,
     )
 
-    task_ids: Optional[list[str]] = None
+    task_ids_dict: Optional[dict[str, list]] = None
+    task_ids_list: Optional[list] = None
 
     # noinspection PyMethodParameters
-    @field_validator("task_ids", mode="before", check_fields=False)
+    @field_validator("task_ids_dict", mode="before", check_fields=False)
     @classmethod
-    def task_ids_validator(cls, value: Optional[list[str]]):
+    def task_ids_dict_validator(cls, value: Optional[dict[str, list]]):
+        """
+        return `{}`, if value is None both on get and on create
+        """
+        return value or {}
+
+    # noinspection PyMethodParameters
+    @field_validator("task_ids_list", mode="before", check_fields=False)
+    @classmethod
+    def task_ids_list_validator(cls, value: Optional[list]):
         """
         return `[]`, if value is None both on get and on create
         """

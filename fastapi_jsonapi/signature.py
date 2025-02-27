@@ -4,9 +4,13 @@ import inspect
 import logging
 from enum import Enum
 from inspect import Parameter
-from typing import Optional
+from typing import Any, Optional, Type, Union, get_args, get_origin
 
 from fastapi import Query
+
+# noinspection PyProtectedMember
+from fastapi._compat import field_annotation_is_scalar, field_annotation_is_sequence
+from fastapi.types import UnionType
 
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo
@@ -15,6 +19,23 @@ from fastapi_jsonapi.common import get_relationship_info_from_field_metadata
 from fastapi_jsonapi.schema_base import BaseModel
 
 log = logging.getLogger(__name__)
+
+
+def field_annotation_is_scalar_sequence(annotation: Union[Type[Any], None]) -> bool:
+    origin = get_origin(annotation)
+    if origin is Union or origin is UnionType:
+        at_least_one_scalar_sequence = False
+        for arg in get_args(annotation):
+            if field_annotation_is_scalar_sequence(arg):
+                at_least_one_scalar_sequence = True
+                continue
+            elif not field_annotation_is_scalar(arg):
+                return False
+        return at_least_one_scalar_sequence
+    return (
+        field_annotation_is_sequence(annotation)
+        and all(field_annotation_is_scalar(sub_annotation) for sub_annotation in get_args(annotation))
+    ) or field_annotation_is_scalar(annotation)
 
 
 def create_filter_parameter(
@@ -29,6 +50,9 @@ def create_filter_parameter(
         and hasattr(field.annotation, "values")
     ):
         default = Query(None, alias=query_filter_name, enum=list(field.annotation))
+        type_field = str
+    elif not field_annotation_is_scalar_sequence(field.annotation):
+        default = Query(None, alias=query_filter_name)
         type_field = str
     else:
         default = Query(None, alias=query_filter_name)

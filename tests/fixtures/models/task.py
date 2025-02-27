@@ -9,4 +9,5 @@ from examples.api_for_sqlalchemy.models.base import Base
 class Task(Base):
     __tablename__ = "tasks"
 
-    task_ids: Mapped[Optional[list]] = mapped_column(JSON, unique=False)
+    task_ids_dict: Mapped[Optional[dict]] = mapped_column(JSON, unique=False)
+    task_ids_list: Mapped[Optional[list]] = mapped_column(JSON, unique=False)
