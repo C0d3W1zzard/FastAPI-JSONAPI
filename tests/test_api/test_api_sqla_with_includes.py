@@ -2378,7 +2378,12 @@ class TestDeleteObjects:
         user_2: User,
     ):
         queried_user_fields = "name"
-        params = QueryParams([("fields[user]", queried_user_fields)])
+        params = QueryParams(
+            [
+                ("fields[user]", queried_user_fields),
+                ("sort", "id"),
+            ],
+        )
         url = app.url_path_for("get_user_list")
         res = await client.delete(url, params=params)
         assert res.status_code == status.HTTP_200_OK, res.text
