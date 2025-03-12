@@ -5,7 +5,17 @@ import pytest
 from fastapi import FastAPI, status
 from fastapi.datastructures import QueryParams
 from httpx import AsyncClient
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    PlainValidator,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
+    field_validator,
+    model_validator,
+)
 from pytest_asyncio import fixture
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -723,12 +733,23 @@ class TestValidators:
         )
 
     async def test_validator_calls_for_field_requests(self, user_1: User):
+        def annotation_pre_validator(value: str) -> str:
+            return f"{value} (annotation_pre_field)"
+
+        def annotation_post_validator(value: str) -> str:
+            return f"{value} (annotation_post_field)"
+
         class UserSchemaWithValidator(BaseModel):
             model_config = ConfigDict(
                 from_attributes=True,
             )
 
-            name: str
+            name: Annotated[
+                str,
+                BeforeValidator(annotation_pre_validator),
+                AfterValidator(annotation_post_validator),
+                # WrapValidator(wrapp_validator),
+            ]
 
             @field_validator("name", mode="before")
             @classmethod
@@ -749,7 +770,7 @@ class TestValidators:
 
             @model_validator(mode="after")
             @classmethod
-            def post_model_validator(self, value):
+            def post_model_validator(cls, value):
                 value.name = f"{value.name} (post_model)"
                 return value
 
@@ -773,8 +794,83 @@ class TestValidators:
             "data": {
                 "attributes": {
                     # check validators call order
-                    "name": f"{user_1.name} (pre_model) (pre_field) (post_field) (post_model)",
+                    "name": (
+                        f"{user_1.name} (pre_model) (pre_field) (annotation_pre_field) "
+                        "(annotation_post_field) (post_field) (post_model)"
+                    ),
                 },
+                "type": self.resource_type,
+            },
+            "jsonapi": {"version": "1.0"},
+            "meta": None,
+        }
+
+    async def test_wrapp_validator_for_field_requests(self, user_1: User):
+        def wrapp_validator(value: str, handler: ValidatorFunctionWrapHandler) -> str:
+            return f"{value} (wrapp_field)"
+
+        class UserSchemaWithValidator(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
+            name: Annotated[str, WrapValidator(wrapp_validator)]
+
+        params = QueryParams(
+            [
+                (f"fields[{self.resource_type}]", "name"),
+            ],
+        )
+
+        app = self.build_app(UserSchemaWithValidator)
+
+        async with AsyncClient(app=app, base_url="http://test") as client:
+            url = app.url_path_for(f"get_{self.resource_type}_detail", obj_id=user_1.id)
+            res = await client.get(url, params=params)
+            assert res.status_code == status.HTTP_200_OK, res.text
+            res_json = res.json()
+
+        assert res_json["data"]
+        assert res_json["data"].pop("id")
+        assert res_json == {
+            "data": {
+                "attributes": {"name": (f"{user_1.name} (wrapp_field)")},
+                "type": self.resource_type,
+            },
+            "jsonapi": {"version": "1.0"},
+            "meta": None,
+        }
+
+    async def test_plain_validator_for_field_requests(self, user_1: User):
+        def plain_validator(value: str, handler: ValidatorFunctionWrapHandler) -> str:
+            return f"{value} (plain_field)"
+
+        class UserSchemaWithValidator(BaseModel):
+            model_config = ConfigDict(
+                from_attributes=True,
+            )
+
+            name: Annotated[int, PlainValidator(plain_validator)]
+
+        params = QueryParams(
+            [
+                (f"fields[{self.resource_type}]", "name"),
+            ],
+        )
+
+        app = self.build_app(UserSchemaWithValidator)
+
+        async with AsyncClient(app=app, base_url="http://test") as client:
+            url = app.url_path_for(f"get_{self.resource_type}_detail", obj_id=user_1.id)
+            res = await client.get(url, params=params)
+            assert res.status_code == status.HTTP_200_OK, res.text
+            res_json = res.json()
+
+        assert res_json["data"]
+        assert res_json["data"].pop("id")
+        assert res_json == {
+            "data": {
+                "attributes": {"name": (f"{user_1.name} (plain_field)")},
                 "type": self.resource_type,
             },
             "jsonapi": {"version": "1.0"},

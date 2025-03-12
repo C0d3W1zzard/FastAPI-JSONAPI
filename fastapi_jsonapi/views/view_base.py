@@ -261,8 +261,10 @@ class ViewBase:
         resource_type: str,
         include_fields: Optional[dict[str, dict[str, Type[TypeSchema]]]] = None,
     ) -> dict:
+        attrs_schema = schemas_storage.get_attrs_schema(resource_type, operation_type="get")
+
         if include_fields is None or not (field_schemas := include_fields.get(resource_type)):
-            attrs_schema = schemas_storage.get_attrs_schema(resource_type, operation_type="get")
+
             data_schema = schemas_storage.get_data_schema(resource_type, operation_type="get")
             return data_schema(
                 id=f"{db_item.id}",
@@ -282,6 +284,10 @@ class ViewBase:
             )
             if before_validators:
                 for validator_name, validator in before_validators.items():
+                    if hasattr(validator.wrapped, "__func__"):
+                        pre_values = validator.wrapped.__func__(attrs_schema, pre_values)
+                        continue
+
                     pre_values = validator.wrapped(pre_values)
 
             for field_name, field_schema in field_schemas.items():
@@ -289,6 +295,10 @@ class ViewBase:
 
                 if after_validators:
                     for validator_name, validator in after_validators.items():
+                        if hasattr(validator.wrapped, "__func__"):
+                            validated_model = validator.wrapped.__func__(attrs_schema, validated_model)
+                            continue
+
                         validated_model = validator.wrapped(validated_model)
 
                 result_attributes[field_name] = getattr(validated_model, field_name)

@@ -3,12 +3,11 @@
 import logging
 from typing import Annotated, Any, Callable, Literal, Optional, Type, TypeVar, Union
 
-from pydantic import AfterValidator, BeforeValidator, ConfigDict, create_model
+from pydantic import AfterValidator, BeforeValidator, ConfigDict, PlainValidator, WrapValidator, create_model
 from pydantic import BaseModel as PydanticBaseModel
 
 # noinspection PyProtectedMember
 from pydantic.fields import FieldInfo
-from typing_extensions import Unpack
 
 from fastapi_jsonapi.common import get_relationship_info_from_field_metadata, search_client_can_set_id
 from fastapi_jsonapi.schema import (
@@ -190,11 +189,11 @@ class SchemaBuilder:
         annotation = field.annotation
         validators = []
         for val in field.metadata:
-            if isinstance(val, (AfterValidator, BeforeValidator)):
+            if isinstance(val, (AfterValidator, BeforeValidator, WrapValidator, PlainValidator)):
                 validators.append(val)
 
         if validators:
-            annotation = Annotated[annotation, Unpack[validators]]
+            annotation = Annotated.__class_getitem__((annotation, *validators))
 
         return annotation
 

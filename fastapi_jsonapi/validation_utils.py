@@ -35,11 +35,17 @@ def extract_validators(
             if include_for_field_names and field_name not in include_for_field_names:
                 continue
             validator_config = field_validator(field_name, mode=validator.info.mode)
-            field_validators[name] = validator_config(validator.func)
+
+            func = validator.func.__func__ if hasattr(validator.func, "__func__") else validator.func
+
+            field_validators[name] = validator_config(func)
 
     # model validators
     for name, validator in validators.model_validators.items():
         validator_config = model_validator(mode=validator.info.mode)
-        model_validators[name] = validator_config(validator.func)
+
+        func = validator.func.__func__ if hasattr(validator.func, "__func__") else validator.func
+
+        model_validators[name] = validator_config(func)
 
     return field_validators, model_validators
