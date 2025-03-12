@@ -7,7 +7,7 @@ View Dependencies
 
 As you already know, in the process of its work, FastAPI-JSONAPI interacts between application layers.
 Sometimes there are things that are necessary to process requests but are only computable at runtime.
-In order for ResourceManager and DataLayer to use such things, there is a mechanism called **method_dependencies**.
+In order for ResourceManager and DataLayer to use such things, there is a mechanism called **operation_dependencies**.
 
 The most common cases of such things are database session and access handling.
 The example below demonstrates some simple implementation of these ideas using sqlalchemy.
@@ -17,8 +17,8 @@ Example:
 .. literalinclude:: ./python_snippets/view_dependencies/main_example.py
   :language: python
 
-In this example, the focus should be on the **HTTPMethod** and **HTTPMethodConfig** entities.
-By setting the **method_dependencies** attribute, you can set FastAPI dependencies for endpoints,
+In this example, the focus should be on the **Operation** and **OperationConfig** entities.
+By setting the **operation_dependencies** attribute, you can set FastAPI dependencies for endpoints,
 as well as manage the creation of additional kwargs needed to initialize the DataLayer.
 
 Dependencies can be any Pydantic model containing Depends as default values.
@@ -73,33 +73,33 @@ Handlers
 --------
 
 As noted above, dependencies can be used to create a kwargs for a DataLayer.
-To do this, you need to define **prepare_data_layer_kwargs** in **HTTPMethodConfig**.
+To do this, you need to define **prepare_data_layer_kwargs** in **OperationConfig**.
 This is a callable object which can be synchronous or asynchronous.
 
 Its signature should look like this
 
 .. code-block:: python
 
-    async def my_handler(view: ViewBase, dto: BaseModel) -> Dict[str, Any]:
+    async def my_handler(view: ViewBase, dto: BaseModel) -> dict[str, Any]:
         pass
 
 or this
 
 .. code-block:: python
 
-    async def my_handler(view: ViewBase) -> Dict[str, Any]:
+    async def my_handler(view: ViewBase) -> dict[str, Any]:
         pass
 
 In the case of dto, it is an instance of the class corresponds to what
-is in **HTTPMethodConfig.dependencies** and should only be present in the function
+is in **OperationConfig.dependencies** and should only be present in the function
 signature if dependencies is not None.
 
-The **HTTPMethodConfig.ALL** method has special behavior. When declared,
+The **OperationConfig.ALL** method has special behavior. When declared,
 its dependencies will be passed to each endpoint regardless of the existence of other configs.
 
-Explaining with a specific example, in the case when **HTTPMethod.ALL** is declared and
-it has dependencies, and also a method such as **HTTPMethod.GET** also has dependencies,
-the signature for the **HTTPMethod.GET** handler will be a union of dependencies
+Explaining with a specific example, in the case when **Operation.ALL** is declared and
+it has dependencies, and also a method such as **Operation.GET** also has dependencies,
+the signature for the **Operation.GET** handler will be a union of dependencies
 
 Example:
 

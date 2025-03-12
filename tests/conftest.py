@@ -1,5 +1,7 @@
 import asyncio
 import logging
+from collections import defaultdict
+from copy import copy
 
 import pytest
 from fastapi import FastAPI
@@ -7,6 +9,8 @@ from httpx import AsyncClient
 from pytest import fixture  # noqa PT013
 from pytest_asyncio import fixture as async_fixture
 
+from fastapi_jsonapi.atomic.prepared_atomic_operation import atomic_dependency_handlers
+from fastapi_jsonapi.data_layers.sqla.query_building import relationships_info_storage
 from tests.fixtures.app import (  # noqa
     app,
     app_plain,
@@ -14,7 +18,7 @@ from tests.fixtures.app import (  # noqa
 from tests.fixtures.db_connection import (  # noqa
     async_engine,
     async_session,
-    async_session_plain,
+    refresh_db,
 )
 from tests.fixtures.entities import (  # noqa
     child_1,
@@ -32,6 +36,8 @@ from tests.fixtures.entities import (  # noqa
     parent_1,
     parent_2,
     parent_3,
+    task_1,
+    task_2,
     user_1,
     user_1_bio,
     user_1_comments_for_u2_posts,
@@ -50,11 +56,7 @@ from tests.fixtures.user import (  # noqa
     user_attributes,
     user_attributes_factory,
 )
-from tests.fixtures.views import (  # noqa
-    DetailViewBaseGeneric,
-    ListViewBaseGeneric,
-)
-from tests.models import Base
+from tests.fixtures.views import ViewBaseGeneric  # noqa
 
 
 def configure_logging():
@@ -86,8 +88,14 @@ async def client(app: FastAPI) -> AsyncClient:  # noqa
         yield ac
 
 
-@async_fixture(autouse=True)
-async def refresh_db(async_engine):  # noqa F811
-    async with async_engine.begin() as connector:
-        for table in reversed(Base.metadata.sorted_tables):
-            await connector.execute(table.delete())
+@pytest.fixture
+def clear_relationships_info_storage():
+    data = copy(relationships_info_storage._data)
+    relationships_info_storage._data = defaultdict(dict)
+    yield
+    relationships_info_storage._data = data
+
+
+@pytest.fixture(autouse=True)
+def clear_atomic_dependency_handlers():
+    atomic_dependency_handlers.clear()

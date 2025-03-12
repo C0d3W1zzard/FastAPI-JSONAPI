@@ -1,17 +1,12 @@
 """Route creator"""
 
-from typing import (
-    Any,
-    Dict,
-    List,
-)
+from fastapi import APIRouter, FastAPI
 
-from fastapi import (
-    APIRouter,
-    FastAPI,
-)
+from fastapi_jsonapi import ApplicationBuilder
+from fastapi_jsonapi.atomic import AtomicOperations
 
-from examples.api_for_sqlalchemy.models import (
+from .api.views_base import ViewBase
+from .models import (
     Child,
     Computer,
     Parent,
@@ -19,12 +14,9 @@ from examples.api_for_sqlalchemy.models import (
     Post,
     User,
     UserBio,
+    Workplace,
 )
-from fastapi_jsonapi import RoutersJSONAPI
-from fastapi_jsonapi.atomic import AtomicOperations
-
-from .api.views_base import DetailViewBase, ListViewBase
-from .models.schemas import (
+from .schemas import (
     ChildInSchema,
     ChildPatchSchema,
     ChildSchema,
@@ -38,119 +30,110 @@ from .models.schemas import (
     PostInSchema,
     PostPatchSchema,
     PostSchema,
+    UserBioBaseSchema,
     UserBioInSchema,
     UserBioPatchSchema,
-    UserBioSchema,
     UserInSchema,
     UserPatchSchema,
     UserSchema,
+    WorkplaceInSchema,
+    WorkplacePatchSchema,
+    WorkplaceSchema,
 )
 
 
-def add_routes(app: FastAPI) -> List[Dict[str, Any]]:
-    tags = [
-        {
-            "name": "User",
-            "description": "Users API",
-        },
-        {
-            "name": "Post",
-            "description": "Posts API",
-        },
-    ]
-
+def add_routes(app: FastAPI):
     router: APIRouter = APIRouter()
-    RoutersJSONAPI(
-        router=router,
-        path="/users",
-        tags=["User"],
-        class_detail=DetailViewBase,
-        class_list=ListViewBase,
-        model=User,
-        schema=UserSchema,
-        resource_type="user",
-        schema_in_patch=UserPatchSchema,
-        schema_in_post=UserInSchema,
-    )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/posts",
-        tags=["Post"],
-        class_detail=DetailViewBase,
-        class_list=ListViewBase,
-        model=Post,
-        schema=PostSchema,
-        resource_type="post",
-        schema_in_patch=PostPatchSchema,
-        schema_in_post=PostInSchema,
-    )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/user-bio",
-        tags=["Bio"],
-        class_detail=DetailViewBase,
-        class_list=ListViewBase,
-        model=UserBio,
-        schema=UserBioSchema,
-        resource_type="user_bio",
-        schema_in_patch=UserBioPatchSchema,
-        schema_in_post=UserBioInSchema,
-    )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/parents",
-        tags=["Parent"],
-        class_detail=DetailViewBase,
-        class_list=ListViewBase,
-        model=Parent,
-        schema=ParentSchema,
-        resource_type="parent",
-        schema_in_patch=ParentPatchSchema,
-        schema_in_post=ParentInSchema,
-    )
-
-    RoutersJSONAPI(
+    builder = ApplicationBuilder(app)
+    builder.add_resource(
         router=router,
         path="/children",
         tags=["Child"],
-        class_detail=DetailViewBase,
-        class_list=ListViewBase,
+        view=ViewBase,
         model=Child,
         schema=ChildSchema,
         resource_type="child",
         schema_in_patch=ChildPatchSchema,
         schema_in_post=ChildInSchema,
     )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/parent-to-child-association",
-        tags=["Parent To Child Association"],
-        class_detail=DetailViewBase,
-        class_list=ListViewBase,
-        schema=ParentToChildAssociationSchema,
-        resource_type="parent-to-child-association",
-        model=ParentToChildAssociation,
-    )
-
-    RoutersJSONAPI(
+    builder.add_resource(
         router=router,
         path="/computers",
         tags=["Computer"],
-        class_detail=DetailViewBase,
-        class_list=ListViewBase,
+        view=ViewBase,
         model=Computer,
         schema=ComputerSchema,
         resource_type="computer",
         schema_in_patch=ComputerPatchSchema,
         schema_in_post=ComputerInSchema,
     )
+    builder.add_resource(
+        router=router,
+        path="/parent-to-child-association",
+        tags=["Parent To Child Association"],
+        view=ViewBase,
+        schema=ParentToChildAssociationSchema,
+        resource_type="parent-to-child-association",
+        model=ParentToChildAssociation,
+    )
+    builder.add_resource(
+        router=router,
+        path="/parents",
+        tags=["Parent"],
+        view=ViewBase,
+        model=Parent,
+        schema=ParentSchema,
+        resource_type="parent",
+        schema_in_patch=ParentPatchSchema,
+        schema_in_post=ParentInSchema,
+    )
+    builder.add_resource(
+        router=router,
+        path="/posts",
+        tags=["Post"],
+        view=ViewBase,
+        model=Post,
+        schema=PostSchema,
+        resource_type="post",
+        schema_in_patch=PostPatchSchema,
+        schema_in_post=PostInSchema,
+    )
+    builder.add_resource(
+        router=router,
+        path="/user-bio",
+        tags=["Bio"],
+        view=ViewBase,
+        model=UserBio,
+        schema=UserBioBaseSchema,
+        resource_type="user_bio",
+        schema_in_patch=UserBioPatchSchema,
+        schema_in_post=UserBioInSchema,
+    )
+    builder.add_resource(
+        router=router,
+        path="/users",
+        tags=["User"],
+        view=ViewBase,
+        model=User,
+        schema=UserSchema,
+        resource_type="user",
+        schema_in_patch=UserPatchSchema,
+        schema_in_post=UserInSchema,
+    )
+    builder.add_resource(
+        router=router,
+        path="/workplaces",
+        tags=["Workplace"],
+        view=ViewBase,
+        model=Workplace,
+        schema=WorkplaceSchema,
+        resource_type="workplace",
+        schema_in_patch=WorkplacePatchSchema,
+        schema_in_post=WorkplaceInSchema,
+    )
+    builder.initialize()
 
     atomic = AtomicOperations()
 
     app.include_router(router, prefix="")
     app.include_router(atomic.router, prefix="")
-    return tags

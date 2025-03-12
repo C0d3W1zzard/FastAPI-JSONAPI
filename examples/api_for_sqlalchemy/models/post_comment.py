@@ -1,29 +1,23 @@
-"""Post Comment model."""
+from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Integer, String
-from sqlalchemy.orm import relationship
+from typing import TYPE_CHECKING
 
-from examples.api_for_sqlalchemy.extensions.sqlalchemy import Base
-from examples.api_for_sqlalchemy.utils.sqlalchemy.base_model_mixin import BaseModelMixin
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .base import Base
+
+if TYPE_CHECKING:
+    from .post import Post
+    from .user import User
 
 
-class PostComment(Base, BaseModelMixin):
+class PostComment(Base):
     __tablename__ = "post_comments"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    text: str = Column(String, nullable=False, default="", server_default="")
 
-    post_id = Column(Integer, ForeignKey("posts.id"), nullable=False, unique=False)
-    post = relationship("Post", back_populates="comments", uselist=False)
+    text: Mapped[str] = mapped_column(default="", server_default="")
 
-    author_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=False)
-    author = relationship("User", back_populates="comments", uselist=False)
-
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}("
-            f"id={self.id},"
-            f" text={self.text!r},"
-            f" author_id={self.author_id},"
-            f" post_id={self.post_id}"
-            ")"
-        )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=False)
+    user: Mapped[User] = relationship(back_populates="comments")
+    post_id: Mapped[int] = mapped_column(ForeignKey("posts.id"), unique=False)
+    post: Mapped[Post] = relationship(back_populates="comments")

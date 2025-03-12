@@ -1,4 +1,4 @@
-from typing import ClassVar, Dict, Literal
+from typing import ClassVar, Literal
 
 import pytest
 from fastapi import Body, Depends, FastAPI, HTTPException, status
@@ -6,11 +6,10 @@ from httpx import AsyncClient
 from pytest_asyncio import fixture
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
-from fastapi_jsonapi.views.utils import (
-    HTTPMethod,
-    HTTPMethodConfig,
-)
+from examples.api_for_sqlalchemy.models import User
+from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema, UserSchema
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
+from fastapi_jsonapi.views import Operation, OperationConfig
 from tests.common_user_api_test import (
     BaseGenericUserCreateUpdateWithBodyDependency,
     CustomNameAttributesJSONAPI,
@@ -18,13 +17,6 @@ from tests.common_user_api_test import (
 )
 from tests.fixtures.app import build_app_custom
 from tests.fixtures.views import ArbitraryModelBase, SessionDependency, common_handler
-from tests.models import User
-from tests.schemas import (
-    UserAttributesBaseSchema,
-    UserSchema,
-)
-
-pytestmark = pytest.mark.asyncio
 
 
 def get_custom_name_from_body(
@@ -71,25 +63,16 @@ class UserUpdateCustomDependency(ArbitraryModelBase):
     allow: bool = Depends(validator_update.validate)
 
 
-class UserCustomListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class UserCustomView(ViewBaseGeneric):
+    operation_dependencies: ClassVar[dict[Operation, OperationConfig]] = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
         ),
-        HTTPMethod.POST: HTTPMethodConfig(
+        Operation.CREATE: OperationConfig(
             dependencies=UserCreateCustomDependency,
         ),
-    }
-
-
-class UserCustomDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=common_handler,
-        ),
-        HTTPMethod.PATCH: HTTPMethodConfig(
+        Operation.UPDATE: OperationConfig(
             dependencies=UserUpdateCustomDependency,
         ),
     }
@@ -107,15 +90,13 @@ class TestGenericUserCreateUpdateWithBodyDependency(
 
     @pytest.fixture(scope="class")
     def app_w_deps(self, resource_type):
-        app = build_app_custom(
+        return build_app_custom(
             model=User,
             schema=UserSchema,
             resource_type=resource_type,
-            class_list=UserCustomListView,
-            class_detail=UserCustomDetailView,
+            view=UserCustomView,
             path=f"/path_{resource_type}",
         )
-        return app
 
     @fixture(scope="class")
     async def client(self, app_w_deps: FastAPI):

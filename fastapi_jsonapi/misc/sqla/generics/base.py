@@ -1,11 +1,6 @@
-from fastapi_jsonapi.data_layers.sqla_orm import SqlalchemyDataLayer
-from fastapi_jsonapi.views.detail_view import DetailViewBase
-from fastapi_jsonapi.views.list_view import ListViewBase
+from fastapi_jsonapi.data_layers.sqla.orm import SqlalchemyDataLayer
+from fastapi_jsonapi.views.view_base import ViewBase
 
 
-class DetailViewBaseGeneric(DetailViewBase):
-    data_layer_cls = SqlalchemyDataLayer
-
-
-class ListViewBaseGeneric(ListViewBase):
+class ViewBaseGeneric(ViewBase):
     data_layer_cls = SqlalchemyDataLayer

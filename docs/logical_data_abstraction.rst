@@ -20,55 +20,69 @@ In this example, let's assume that we have two legacy models, User and Computer,
 .. code-block:: python
 
     from sqlalchemy import Column, String, Integer, ForeignKey
-    from sqlalchemy.orm import relationship, backref
+    from sqlalchemy.orm import DeclarativeBase, backref, relationship
     from sqlalchemy.ext.declarative import declarative_base
 
-    Base = declarative_base()
+    class Base(DeclarativeBase):
+        pass
 
     class User(Base):
-        id = Column(Integer, primary_key=True)
-        name = Column(String)
-        email = Column(String)
-        birth_date = Column(String)
-        password = Column(String)
+        id: Mapped[int] = mapped_column(primary_key=True)
+        name: Mapped[str]
+        email: Mapped[str]
+        birth_date: Mapped[str]
+        password: Mapped[str]
+
+        computers: Mapped[list[Computer]] = relationship(back_populates="user")
 
 
     class Computer(Base):
-        computer_id = Column(Integer, primary_key=True)
-        serial = Column(String)
-        user_id = Column(Integer, ForeignKey('user.id'))
-        user = relationship('User', backref=backref('computers'))
+        computer_id: Mapped[int] = mapped_column(primary_key=True)
+        serial: Mapped[str]
+
+        user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+        user: Mapped[User] = relationship(back_populates="computers")
+
 
 Now let's create the logical abstraction to illustrate this concept.
 
 .. code-block:: python
 
-    from pydantic import (
-        BaseModel,
-        Field,
-    )
-    from typing import List
+    from pydantic import BaseModel, ConfigDict, Field
     from datetime import datetime
 
 
     class UserSchema(BaseModel):
-        class Config:
-            orm_mode = True
+        model_config = ConfigDict(
+            from_attributes=True,
+        )
 
         id: int
         name: str
         email: str
         birth_date: datetime
-        computers: List['ComputerSchema']
+        comments: Annotated[
+            Optional[list["ComputerSchema"]],
+            RelationshipInfo(
+                resource_type="post_comment",
+                many=True,
+            ),
+        ] = None
 
 
     class ComputerSchema(BaseModel):
-        class Config:
-            orm_mode = True
+        model_config = ConfigDict(
+            from_attributes=True,
+        )
 
         id: int
         serial: str
-        owner: UserSchema
+        user: Annotated[
+            Optional[UserSchema],
+            RelationshipInfo(
+                resource_type="user",
+            ),
+        ] = None
 
 You can see several differences between models and schemas exposed by the API.
 

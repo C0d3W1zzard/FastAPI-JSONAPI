@@ -1,46 +1,33 @@
-from typing import ClassVar, Dict
+from typing import ClassVar
 
 from fastapi import Depends
-from pydantic import BaseModel
-from pytest import fixture  # noqa
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fastapi_jsonapi.misc.sqla.generics.base import (
-    DetailViewBaseGeneric as DetailViewBaseGenericHelper,
-)
-from fastapi_jsonapi.misc.sqla.generics.base import (
-    ListViewBaseGeneric as ListViewBaseGenericHelper,
-)
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
-from fastapi_jsonapi.views.view_base import ViewBase
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric as ViewBaseGenericHelper
+from fastapi_jsonapi.views import Operation, OperationConfig, ViewBase
 from tests.fixtures.db_connection import async_session_dependency
 
 
 class ArbitraryModelBase(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
 
 
 class SessionDependency(ArbitraryModelBase):
     session: AsyncSession = Depends(async_session_dependency)
 
 
-def common_handler(view: ViewBase, dto: SessionDependency) -> Dict:
-    return {"session": dto.session}
-
-
-class DetailViewBaseGeneric(DetailViewBaseGenericHelper):
-    method_dependencies: ClassVar = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=common_handler,
-        ),
+def common_handler(view: ViewBase, dto: SessionDependency) -> dict:
+    return {
+        "session": dto.session,
     }
 
 
-class ListViewBaseGeneric(ListViewBaseGenericHelper):
-    method_dependencies: ClassVar = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class ViewBaseGeneric(ViewBaseGenericHelper):
+    operation_dependencies: ClassVar = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
         ),

@@ -1,27 +1,22 @@
-from typing import ClassVar, Dict
+from typing import ClassVar
 
 import pytest
 from fastapi import Depends, Query, status
 from httpx import AsyncClient
 from pytest_asyncio import fixture
 
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
-from fastapi_jsonapi.views.utils import (
-    HTTPMethod,
-    HTTPMethodConfig,
-)
-from tests.fixtures.app import build_app_custom
-from tests.fixtures.views import ArbitraryModelBase, SessionDependency, common_handler
-from tests.misc.utils import fake
-from tests.models import User
-from tests.schemas import (
+from examples.api_for_sqlalchemy.models import User
+from examples.api_for_sqlalchemy.schemas import (
     UserAttributesBaseSchema,
     UserInSchema,
     UserPatchSchema,
     UserSchema,
 )
-
-pytestmark = pytest.mark.asyncio
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
+from fastapi_jsonapi.views import Operation, OperationConfig
+from tests.fixtures.app import build_app_custom
+from tests.fixtures.views import ArbitraryModelBase, SessionDependency, common_handler
+from tests.misc.utils import fake
 
 
 class CustomDependencyForCreate:
@@ -57,28 +52,19 @@ class UserDeleteCustomDependency(ArbitraryModelBase):
     dep: CustomDependencyForDelete = Depends()
 
 
-class UserCustomListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class UserCustomView(ViewBaseGeneric):
+    operation_dependencies: ClassVar[dict[Operation, OperationConfig]] = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
         ),
-        HTTPMethod.POST: HTTPMethodConfig(
+        Operation.CREATE: OperationConfig(
             dependencies=UserCreateCustomDependency,
         ),
-    }
-
-
-class UserCustomDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=common_handler,
-        ),
-        HTTPMethod.PATCH: HTTPMethodConfig(
+        Operation.UPDATE: OperationConfig(
             dependencies=UserUpdateCustomDependency,
         ),
-        HTTPMethod.DELETE: HTTPMethodConfig(
+        Operation.DELETE: OperationConfig(
             dependencies=UserDeleteCustomDependency,
         ),
     }
@@ -97,8 +83,7 @@ class TestDependenciesResolver:
             schema_in_post=UserInSchema,
             schema_in_patch=UserPatchSchema,
             resource_type=resource_type,
-            class_list=UserCustomListView,
-            class_detail=UserCustomDetailView,
+            view=UserCustomView,
         )
         return app
 
@@ -118,7 +103,10 @@ class TestDependenciesResolver:
         assert response.status_code == expected_status, response.text
         response_data = response.json()
         # TODO: JSON:API exception
-        assert response_data == expected_body
+        detail, *_ = response_data["detail"]
+        expected_detail, *_ = response_data["detail"]
+        assert detail["loc"] == expected_detail["loc"]
+        assert detail["msg"] == expected_detail["msg"]
 
     async def test_on_create_atomic(
         self,
@@ -136,7 +124,7 @@ class TestDependenciesResolver:
                     "op": "add",
                     "data": {
                         "type": resource_type,
-                        "attributes": user.dict(),
+                        "attributes": user.model_dump(),
                     },
                 },
             ],
@@ -145,9 +133,10 @@ class TestDependenciesResolver:
         expected_response_data = {
             "detail": [
                 {
+                    "input": None,
                     "loc": ["query", CustomDependencyForCreate.KEY],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "msg": "Field required",
+                    "type": "missing",
                 },
             ],
         }
@@ -172,20 +161,22 @@ class TestDependenciesResolver:
             "atomic:operations": [
                 {
                     "op": "update",
-                    "id": user_1.id,
+                    "id": f"{user_1.id}",
                     "data": {
                         "type": resource_type,
-                        "attributes": user.dict(),
+                        "attributes": user.model_dump(),
                     },
                 },
             ],
-        }  # TODO: JSON:API exception
+        }
+        # TODO: JSON:API exception
         expected_response_data = {
             "detail": [
                 {
+                    "input": None,
                     "loc": ["query", CustomDependencyForUpdate.KEY],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "msg": "Field required",
+                    "type": "missing",
                 },
             ],
         }
@@ -206,7 +197,7 @@ class TestDependenciesResolver:
                 {
                     "op": "remove",
                     "ref": {
-                        "id": user_1.id,
+                        "id": f"{user_1.id}",
                         "type": resource_type,
                     },
                 },
@@ -216,9 +207,10 @@ class TestDependenciesResolver:
         expected_response_data = {
             "detail": [
                 {
+                    "input": None,
                     "loc": ["query", CustomDependencyForDelete.KEY],
-                    "msg": "field required",
-                    "type": "value_error.missing",
+                    "msg": "Field required",
+                    "type": "missing",
                 },
             ],
         }

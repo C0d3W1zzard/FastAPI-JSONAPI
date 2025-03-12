@@ -1,9 +1,9 @@
-import json
 from unittest.mock import MagicMock
 
+import orjson as json
 import pytest
 from fastapi import status
-from starlette.datastructures import QueryParams
+from fastapi.datastructures import QueryParams
 
 from fastapi_jsonapi.exceptions import InvalidFilters
 from fastapi_jsonapi.exceptions.json_api import BadRequest
@@ -14,11 +14,11 @@ def test__extract_item_key():
     manager = QueryStringManager(MagicMock())
 
     key = "fields[user]"
-    assert manager._extract_item_key(key) == "user"
+    assert manager.extract_item_key(key) == "user"
 
     with pytest.raises(BadRequest) as exc_info:  # noqa: PT012
         key = "fields[user"
-        manager._extract_item_key(key)
+        manager.extract_item_key(key)
 
     assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
     assert exc_info.value.detail == {
@@ -46,7 +46,7 @@ def test_filters__errors():
     manager = QueryStringManager(request)
 
     with pytest.raises(InvalidFilters) as exc_info:
-        manager.filters
+        assert isinstance(manager.filters, list)
 
     assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
     assert exc_info.value.detail == {
@@ -70,14 +70,14 @@ def test_filters__errors():
                         "op": "",
                         "val": "",
                     },
-                ),
+                ).decode(),
             ),
         ],
     )
     manager = QueryStringManager(request)
 
     with pytest.raises(InvalidFilters) as exc_info:
-        manager.filters
+        assert isinstance(manager.filters, list)
 
     assert exc_info.value.status_code == status.HTTP_400_BAD_REQUEST
     assert exc_info.value.detail == {

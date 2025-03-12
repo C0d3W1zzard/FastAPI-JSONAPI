@@ -4,7 +4,6 @@ from .base import (
     ExceptionResponseSchema,
     ExceptionSchema,
     ExceptionSourceSchema,
-    QueryError,
 )
 from .json_api import (
     BadRequest,
@@ -22,20 +21,19 @@ from .json_api import (
 )
 
 __all__ = [
+    "BadRequest",
     "ExceptionResponseSchema",
     "ExceptionSchema",
     "ExceptionSourceSchema",
-    "BadRequest",
+    "Forbidden",
+    "HTTPException",
+    "InternalServerError",
     "InvalidField",
     "InvalidFilters",
     "InvalidInclude",
-    "InvalidType",
-    "InternalServerError",
-    "RelationNotFound",
     "InvalidSort",
-    "QueryError",
-    "HTTPException",
-    "RelatedObjectNotFound",
+    "InvalidType",
     "ObjectNotFound",
-    "Forbidden",
+    "RelatedObjectNotFound",
+    "RelationNotFound",
 ]

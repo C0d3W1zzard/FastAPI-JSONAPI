@@ -1,7 +1,6 @@
-fastapi<0.100.0
-pydantic<2
-simplejson>=3.17.6
+fastapi>=0.112.3
+orjson>=3.2.1
+pydantic>=2.6.0
 sphinx
 sphinx_rtd_theme
-sqlalchemy<2
-tortoise-orm>=0.19.3
+sqlalchemy>=2.0.26

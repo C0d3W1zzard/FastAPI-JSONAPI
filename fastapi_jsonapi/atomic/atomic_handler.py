@@ -4,32 +4,22 @@ import logging
 from collections import defaultdict
 from contextvars import ContextVar
 from functools import wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Awaitable,
-    Callable,
-    List,
-    Optional,
-    Type,
-    TypedDict,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, TypedDict, Union
 
 from fastapi import HTTPException, status
+from fastapi.requests import Request
 from pydantic import ValidationError
-from starlette.requests import Request
 
-from fastapi_jsonapi import RoutersJSONAPI
 from fastapi_jsonapi.atomic.prepared_atomic_operation import LocalIdsType, OperationBase
 from fastapi_jsonapi.atomic.schemas import AtomicOperation, AtomicOperationRequest, AtomicResultResponse
+from fastapi_jsonapi.storages.schemas_storage import schemas_storage
 
 if TYPE_CHECKING:
     from fastapi_jsonapi.data_layers.base import BaseDataLayer
+    from fastapi_jsonapi.data_typing import TypeSchema
 
 log = logging.getLogger(__name__)
-AtomicResponseDict = TypedDict("AtomicResponseDict", {"atomic:results": List[Any]})
-
+AtomicResponseDict = TypedDict("AtomicResponseDict", {"atomic:results": list[Any]})
 current_atomic_operation: ContextVar[OperationBase] = ContextVar("current_atomic_operation")
 
 
@@ -47,12 +37,12 @@ def catch_exc_on_operation_handle(func: Callable[..., Awaitable]):
             errors_details = {
                 "message": f"Validation error on operation {operation.op_type}",
                 "ref": operation.ref,
-                "data": operation.data.dict(),
+                "data": operation.data.model_dump(),
             }
             if isinstance(ex, ValidationError):
                 errors_details.update(errors=ex.errors())
             elif isinstance(ex, ValueError):
-                errors_details.update(error=str(ex))
+                errors_details.update(error=f"{ex}")
             else:
                 raise
             # TODO: json:api exception
@@ -65,7 +55,6 @@ def catch_exc_on_operation_handle(func: Callable[..., Awaitable]):
 
 
 class AtomicViewHandler:
-    jsonapi_routers_cls: Type[RoutersJSONAPI] = RoutersJSONAPI
 
     def __init__(
         self,
@@ -83,24 +72,21 @@ class AtomicViewHandler:
         :param operation:
         :return:
         """
-        operation_type = operation.ref and operation.ref.type or operation.data and operation.data.type
-        assert operation_type
-        if operation_type not in self.jsonapi_routers_cls.all_jsonapi_routers:
-            msg = f"Unknown resource type {operation_type!r}. Register it via RoutersJSONAPI"
+        resource_type = (operation.ref and operation.ref.type) or (operation.data and operation.data.type)
+        if not schemas_storage.has_resource(resource_type):
+            msg = f"Unknown resource type {resource_type!r}."
             raise ValueError(msg)
-        jsonapi = self.jsonapi_routers_cls.all_jsonapi_routers[operation_type]
 
-        one_operation = OperationBase.prepare(
+        return OperationBase.prepare(
             action=operation.op,
             request=self.request,
-            jsonapi=jsonapi,
+            resource_type=resource_type,
             ref=operation.ref,
             data=operation.data,
         )
-        return one_operation
 
-    async def prepare_operations(self) -> List[OperationBase]:
-        prepared_operations: List[OperationBase] = []
+    async def prepare_operations(self) -> list[OperationBase]:
+        prepared_operations: list[OperationBase] = []
 
         for operation in self.operations_request.operations:
             one_operation = await self.prepare_one_operation(operation)
@@ -117,6 +103,29 @@ class AtomicViewHandler:
         operation.update_relationships_with_lid(local_ids=self.local_ids_cache)
         return await operation.handle(dl=dl)
 
+    async def process_next_operation(
+        self,
+        operation: OperationBase,
+        previous_dl: Optional[BaseDataLayer],
+    ) -> tuple[Optional[TypeSchema], BaseDataLayer]:
+        dl = await operation.get_data_layer()
+        await dl.atomic_start(
+            previous_dl=previous_dl,
+        )
+        try:
+            response = await self.process_one_operation(
+                dl=dl,
+                operation=operation,
+            )
+        except HTTPException as ex:
+            await dl.atomic_end(
+                success=False,
+                exception=ex,
+            )
+            raise ex
+
+        return response, dl
+
     async def handle(self) -> Union[AtomicResponseDict, AtomicResultResponse, None]:
         prepared_operations = await self.prepare_operations()
         results = []
@@ -127,12 +136,7 @@ class AtomicViewHandler:
             # set context var
             ctx_var_token = current_atomic_operation.set(operation)
 
-            dl: BaseDataLayer = await operation.get_data_layer()
-            await dl.atomic_start(previous_dl=previous_dl)
-            response = await self.process_one_operation(
-                dl=dl,
-                operation=operation,
-            )
+            response, dl = await self.process_next_operation(operation, previous_dl)
             previous_dl = dl
 
             # response.data.id
@@ -143,9 +147,14 @@ class AtomicViewHandler:
                 results.append({})
                 continue
             only_empty_responses = False
-            results.append({"data": response.data})
-            if operation.data.lid and response.data:
-                self.local_ids_cache[operation.data.type][operation.data.lid] = response.data.id
+
+            data = response["data"]
+            results.append(
+                {"data": data},
+            )
+
+            if operation.data.lid and data:
+                self.local_ids_cache[operation.data.type][operation.data.lid] = data["id"]
 
             # reset context var
             current_atomic_operation.reset(ctx_var_token)

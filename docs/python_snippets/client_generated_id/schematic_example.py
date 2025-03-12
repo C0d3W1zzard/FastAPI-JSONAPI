@@ -1,42 +1,47 @@
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Annotated, Optional
 
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI
-from fastapi_jsonapi.schema_base import Field, BaseModel as PydanticBaseModel
-from sqlalchemy import Column, Integer, Text
+from fastapi.responses import ORJSONResponse as JSONResponse
+from pydantic import ConfigDict
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from fastapi_jsonapi import RoutersJSONAPI, init
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
-from fastapi_jsonapi.views.view_base import ViewBase
+from examples.api_for_sqlalchemy.models.db import DB
+from fastapi_jsonapi import ApplicationBuilder
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
+from fastapi_jsonapi.schema_base import BaseModel
+from fastapi_jsonapi.types_metadata import ClientCanSetId
+from fastapi_jsonapi.views import ViewBase, Operation, OperationConfig
 
 CURRENT_FILE = Path(__file__).resolve()
 CURRENT_DIR = CURRENT_FILE.parent
-PROJECT_DIR = CURRENT_DIR.parent.parent
-DB_URL = f"sqlite+aiosqlite:///{CURRENT_DIR.absolute()}/db.sqlite3"
-sys.path.append(str(PROJECT_DIR))
+sys.path.append(f"{CURRENT_DIR.parent.parent}")
+db = DB(
+    url=make_url(f"sqlite+aiosqlite:///{CURRENT_DIR.absolute()}/db.sqlite3"),
+)
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 class User(Base):
     __tablename__ = "users"
-    id = Column(Integer, primary_key=True, autoincrement=False)
-    name = Column(Text, nullable=True)
 
-
-class BaseModel(PydanticBaseModel):
-    class Config:
-        orm_mode = True
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[Optional[str]]
 
 
 class UserAttributesBaseSchema(BaseModel):
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
+
     name: str
 
 
@@ -51,49 +56,26 @@ class UserPatchSchema(UserAttributesBaseSchema):
 class UserInSchema(UserAttributesBaseSchema):
     """User input schema."""
 
-    id: int = Field(client_can_set_id=True)
-
-
-async def get_session():
-    sess = sessionmaker(
-        bind=create_async_engine(url=make_url(DB_URL)),
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    async with sess() as db_session:  # type: AsyncSession
-        yield db_session
-        await db_session.rollback()
-
-
-async def sqlalchemy_init() -> None:
-    engine = create_async_engine(url=make_url(DB_URL))
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    id: Annotated[int, ClientCanSetId()]
 
 
 class SessionDependency(BaseModel):
-    session: AsyncSession = Depends(get_session)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
 
-    class Config:
-        arbitrary_types_allowed = True
+    session: AsyncSession = Depends(db.session)
 
 
 def session_dependency_handler(view: ViewBase, dto: SessionDependency) -> dict:
-    return {"session": dto.session}
-
-
-class UserDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=session_dependency_handler,
-        )
+    return {
+        "session": dto.session,
     }
 
 
-class UserListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class UserView(ViewBaseGeneric):
+    operation_dependencies: ClassVar = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=session_dependency_handler,
         )
@@ -101,57 +83,48 @@ class UserListView(ListViewBaseGeneric):
 
 
 def add_routes(app: FastAPI):
-    tags = [
-        {
-            "name": "User",
-            "description": "",
-        },
-    ]
-
-    router: APIRouter = APIRouter()
-    RoutersJSONAPI(
-        router=router,
+    builder = ApplicationBuilder(app)
+    builder.add_resource(
         path="/users",
         tags=["User"],
-        class_detail=UserDetailView,
-        class_list=UserListView,
+        view=UserView,
         schema=UserSchema,
         resource_type="user",
         schema_in_patch=UserPatchSchema,
         schema_in_post=UserInSchema,
         model=User,
     )
-
-    app.include_router(router, prefix="")
-    return tags
+    builder.initialize()
 
 
-def create_app() -> FastAPI:
-    """
-    Create app factory.
-
-    :return: app
-    """
-    app = FastAPI(
-        title="FastAPI and SQLAlchemy",
-        debug=True,
-        openapi_url="/openapi.json",
-        docs_url="/docs",
-    )
+# noinspection PyUnusedLocal
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     add_routes(app)
-    app.on_event("startup")(sqlalchemy_init)
-    init(app)
-    return app
+
+    async with db.engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    yield
+
+    await db.dispose()
 
 
-app = create_app()
+app = FastAPI(
+    title="FastAPI and SQLAlchemy",
+    lifespan=lifespan,
+    debug=True,
+    default_response_class=JSONResponse,
+    docs_url="/docs",
+    openapi_url="/openapi.json",
+)
+
 
 if __name__ == "__main__":
-    current_file_name = CURRENT_FILE.name.replace(CURRENT_FILE.suffix, "")
     uvicorn.run(
-        f"{current_file_name}:app",
+        f"{CURRENT_FILE.name.replace(CURRENT_FILE.suffix, '')}:app",
         host="0.0.0.0",
         port=8084,
         reload=True,
-        app_dir=str(CURRENT_DIR),
+        app_dir=f"{CURRENT_DIR}",
     )

@@ -1,17 +1,14 @@
 import logging
 from typing import Awaitable, Callable
 
+from fastapi import status
 from httpx import AsyncClient
-from pytest import mark  # noqa
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.functions import count
-from starlette import status
 
+from examples.api_for_sqlalchemy.models import Computer
 from fastapi_jsonapi.atomic.schemas import AtomicOperationAction
-from tests.models import Computer
-
-pytestmark = mark.asyncio
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -41,14 +38,14 @@ class TestAtomicDeleteObjects:
                 {
                     "op": "remove",
                     "ref": {
-                        "id": str(computer_1.id),
+                        "id": f"{computer_1.id}",
                         "type": "computer",
                     },
                 },
                 {
                     "op": "remove",
                     "ref": {
-                        "id": str(computer_2.id),
+                        "id": f"{computer_2.id}",
                         "type": "computer",
                     },
                 },
@@ -78,13 +75,7 @@ class TestAtomicDeleteObjects:
         }
         response = await client.post("/operations", json=data_atomic_request)
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.text
-        assert response.json() == {
-            # TODO: json:api exception
-            "detail": [
-                {
-                    "loc": ["body", "atomic:operations", 0, "__root__"],
-                    "msg": f"ref should be present for action {AtomicOperationAction.remove.value!r}",
-                    "type": "value_error",
-                },
-            ],
-        }
+        response_data = response.json()
+        detail, *_ = response_data["detail"]
+        assert detail["loc"] == ["body", "atomic:operations", 0]
+        assert detail["msg"] == f"Value error, ref should be present for action {AtomicOperationAction.remove.value!r}"

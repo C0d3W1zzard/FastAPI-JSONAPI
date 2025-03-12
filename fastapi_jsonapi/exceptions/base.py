@@ -1,11 +1,6 @@
 """Collection of useful http error for the Api."""
 
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-)
+from typing import Any, Optional
 
 from pydantic import Field
 from pydantic.main import BaseModel
@@ -30,9 +25,5 @@ class ExceptionSchema(BaseModel):
 class ExceptionResponseSchema(BaseModel):
     """Exception response schema."""
 
-    errors: List[ExceptionSchema]
-    jsonapi: Dict[str, str] = Field(default={"version": "1.0"})
-
-
-class QueryError(Exception):
-    """Query build error."""
+    errors: list[ExceptionSchema]
+    jsonapi: dict[str, str] = Field(default={"version": "1.0"})

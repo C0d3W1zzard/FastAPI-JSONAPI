@@ -5,14 +5,16 @@ If you want to create your own data layer
 you must inherit from this base class
 """
 
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Optional, Type
 
 from fastapi import Request
+from pydantic import TypeAdapter
 
+from fastapi_jsonapi.common import search_client_can_set_id
 from fastapi_jsonapi.data_typing import TypeModel, TypeSchema
 from fastapi_jsonapi.querystring import QueryStringManager
 from fastapi_jsonapi.schema import BaseJSONAPIItemInSchema
-from fastapi_jsonapi.schema_builder import FieldConfig, TransferSaveWrapper
+from fastapi_jsonapi.views import RelationshipRequestInfo
 
 
 class BaseDataLayer:
@@ -21,13 +23,12 @@ class BaseDataLayer:
     def __init__(
         self,
         request: Request,
-        schema: Type[TypeSchema],
         model: Type[TypeModel],
-        url_id_field: str,
-        id_name_field: Optional[str] = None,
+        schema: Type[TypeSchema],
+        resource_type: str,
+        url_id_field: str = "id",
         disable_collection_count: bool = False,
         default_collection_count: int = -1,
-        type_: str = "",
         **kwargs,
     ):
         """
@@ -37,38 +38,29 @@ class BaseDataLayer:
         :param schema:
         :param model:
         :param url_id_field:
-        :param id_name_field:
         :param disable_collection_count:
         :param default_collection_count:
-        :param type_: resource type
+        :param resource_type: resource type
         :param kwargs:
         """
-        self.request = request
-        self.schema = schema
-        self.model = model
-        self.url_id_field = url_id_field
-        self.id_name_field = id_name_field
+        self.request: Request = request
+        self.schema: Type[TypeSchema] = schema
+        self.model: Type[TypeModel] = model
+        self.resource_type: str = resource_type
+        self.url_id_field: str = url_id_field
         self.disable_collection_count: bool = disable_collection_count
         self.default_collection_count: int = default_collection_count
         self.is_atomic = False
-        self.type_ = type_
 
     async def atomic_start(self, previous_dl: Optional["BaseDataLayer"] = None):
         self.is_atomic = True
 
-    async def atomic_end(self, success: bool = True):
+    async def atomic_end(self, success: bool = True, exception: Optional[Exception] = None):
         raise NotImplementedError
 
-    def _unwrap_field_config(self, extra: Dict):
-        field_config_wrapper: Optional[TransferSaveWrapper] = extra.get("field_config")
-
-        if field_config_wrapper:
-            return field_config_wrapper.get_field_config()
-
-        return FieldConfig()
-
+    @classmethod
     def _apply_client_generated_id(
-        self,
+        cls,
         data_create: BaseJSONAPIItemInSchema,
         model_kwargs: dict,
     ):
@@ -81,14 +73,11 @@ class BaseDataLayer:
         if data_create.id is None:
             return model_kwargs
 
-        extra = data_create.__fields__["id"].field_info.extra
-        if extra.get("client_can_set_id"):
+        field = data_create.model_fields["id"]
+        if can_set_id := search_client_can_set_id.first(field):
             id_value = data_create.id
-            field_config = self._unwrap_field_config(extra)
-
-            if field_config.cast_type:
-                id_value = field_config.cast_type(id_value)
-
+            if can_set_id.cast_type:
+                id_value = TypeAdapter(can_set_id.cast_type).validate_python(id_value)
             model_kwargs["id"] = id_value
 
         return model_kwargs
@@ -103,42 +92,34 @@ class BaseDataLayer:
         """
         raise NotImplementedError
 
-    def get_object_id_field_name(self):
-        """
-        compound key may cause errors
-
-        :return:
-        """
-        return self.id_name_field
-
-    def get_object_id_field(self):
-        id_name_field = self.get_object_id_field_name()
-        try:
-            return getattr(self.model, id_name_field)
-        except AttributeError:
-            msg = f"{self.model.__name__} has no attribute {id_name_field}"
-            # TODO: any custom exception type?
-            raise Exception(msg)
-
-    def get_object_id(self, obj: TypeModel):
-        return getattr(obj, self.get_object_id_field_name())
-
-    async def get_object(self, view_kwargs: dict, qs: Optional[QueryStringManager] = None) -> TypeModel:
+    async def get_object(
+        self,
+        view_kwargs: dict,
+        qs: Optional[QueryStringManager] = None,
+        relationship_request_info: Optional[RelationshipRequestInfo] = None,
+    ) -> TypeModel:
         """
         Retrieve an object
 
         :param view_kwargs: kwargs from the resource view
         :param qs:
+        :param relationship_request_info:
         :return DeclarativeMeta: an object
         """
         raise NotImplementedError
 
-    async def get_collection(self, qs: QueryStringManager, view_kwargs: Optional[dict] = None) -> Tuple[int, list]:
+    async def get_collection(
+        self,
+        qs: QueryStringManager,
+        view_kwargs: Optional[dict] = None,
+        relationship_request_info: Optional[RelationshipRequestInfo] = None,
+    ) -> tuple[int, list]:
         """
         Retrieve a collection of objects
 
         :param qs: a querystring manager to retrieve information from url
         :param view_kwargs: kwargs from the resource view
+        :param relationship_request_info:
         :return tuple: the number of object and the list of objects
         """
         raise NotImplementedError
@@ -235,68 +216,7 @@ class BaseDataLayer:
         """
         raise NotImplementedError
 
-    def get_related_model_query_base(
-        self,
-        related_model: Type[TypeModel],
-    ):
-        """
-        Prepare query for the related model
-
-        :param related_model: Related ORM model class (not instance)
-        :return:
-        """
-        raise NotImplementedError
-
-    def get_related_object_query(
-        self,
-        related_model: Type[TypeModel],
-        related_id_field: str,
-        id_value: str,
-    ):
-        """
-        Prepare query to get related object
-
-        :param related_model:
-        :param related_id_field:
-        :param id_value:
-        :return:
-        """
-        raise NotImplementedError
-
-    def get_related_objects_list_query(
-        self,
-        related_model: Type[TypeModel],
-        related_id_field: str,
-        ids: list[str],
-    ):
-        """
-        Prepare query to get related objects list
-
-        :param related_model:
-        :param related_id_field:
-        :param ids:
-        :return:
-        """
-        raise NotImplementedError
-
-    # async def get_related_object_query(self):
-    async def get_related_object(
-        self,
-        related_model: Type[TypeModel],
-        related_id_field: str,
-        id_value: str,
-    ) -> TypeModel:
-        """
-        Get related object.
-
-        :param related_model: Related ORM model class (not instance)
-        :param related_id_field: id field of the related model (usually it's `id`)
-        :param id_value: related object id value
-        :return: an ORM object
-        """
-        raise NotImplementedError
-
-    async def get_related_objects_list(
+    async def get_related_objects(
         self,
         related_model: Type[TypeModel],
         related_id_field: str,
@@ -309,14 +229,6 @@ class BaseDataLayer:
         :param related_id_field: id field of the related model (usually it's `id`)
         :param ids: related object id values list
         :return: a list of ORM objects
-        """
-        raise NotImplementedError
-
-    def query(self, view_kwargs):
-        """
-        Construct the base query to retrieve wanted data
-
-        :param view_kwargs: kwargs from the resource view
         """
         raise NotImplementedError
 
@@ -413,27 +325,25 @@ class BaseDataLayer:
         """
         raise NotImplementedError
 
-    async def delete_objects(self, objects: List[TypeModel], view_kwargs):
+    async def delete_objects(self, objects: list[TypeModel], view_kwargs):
         # TODO: doc
         raise NotImplementedError
 
-    async def before_delete_objects(self, objects: List[TypeModel], view_kwargs: dict):
+    async def before_delete_objects(self, objects: list[TypeModel], view_kwargs: dict):
         """
         Make checks before deleting objects.
 
         :param objects: an object from data layer.
         :param view_kwargs: kwargs from the resource view.
         """
-        pass
 
-    async def after_delete_objects(self, objects: List[TypeModel], view_kwargs: dict):
+    async def after_delete_objects(self, objects: list[TypeModel], view_kwargs: dict):
         """
         Any action after deleting objects.
 
         :param objects: an object from data layer.
         :param view_kwargs: kwargs from the resource view.
         """
-        pass
 
     async def before_create_relationship(
         self,
