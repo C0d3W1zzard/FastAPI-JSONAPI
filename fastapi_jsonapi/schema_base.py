@@ -1,15 +1,11 @@
 __all__ = (
-    "Field",
     "BaseModel",
+    "Field",
     "registry",
-    "RelationshipInfo",
 )
-
-from typing import Dict
 
 from pydantic import BaseModel as BaseModelGeneric
 from pydantic import Field
-from pydantic.main import ModelMetaclass
 
 
 class Registry:
@@ -30,26 +26,11 @@ class Registry:
 registry = Registry()
 
 
-class RegistryMeta(ModelMetaclass):
-    def __new__(mcs, *args, **kwargs):
-        # any other way to get all known schemas?
-        schema = super().__new__(mcs, *args, **kwargs)
-        registry.add(schema)
-        return schema
+class RegistryMeta(BaseModelGeneric):
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        registry.add(cls)
 
 
-class BaseModel(BaseModelGeneric, metaclass=RegistryMeta):
+class BaseModel(RegistryMeta):
     pass
-
-
-class RelationshipInfo(BaseModel):
-    resource_type: str
-    many: bool = False
-    related_view: str = None
-    related_view_kwargs: Dict[str, str] = Field(default_factory=dict)
-    resource_id_example: str = "1"
-    id_field_name: str = "id"
-
-    # TODO: Pydantic V2 use model_config
-    class Config:
-        frozen = True

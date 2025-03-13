@@ -1,51 +1,44 @@
-from typing import ClassVar, Dict
+from typing import ClassVar
 
 from fastapi import Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from examples.api_for_sqlalchemy.extensions.sqlalchemy import Connector
-from fastapi_jsonapi.data_layers.sqla_orm import SqlalchemyDataLayer
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
-from fastapi_jsonapi.views.utils import HTTPMethod, HTTPMethodConfig
-from fastapi_jsonapi.views.view_base import ViewBase
+from examples.api_for_sqlalchemy import config
+from examples.api_for_sqlalchemy.models.db import DB
+from fastapi_jsonapi.data_layers.sqla.orm import SqlalchemyDataLayer
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
+from fastapi_jsonapi.views import Operation, OperationConfig, ViewBase
+
+db = DB(
+    url=make_url(config.SQLA_URI),
+)
 
 
 class SessionDependency(BaseModel):
-    session: AsyncSession = Depends(Connector.get_session)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
 
-    class Config:
-        arbitrary_types_allowed = True
-
-
-def handler(view: ViewBase, dto: SessionDependency) -> Dict:
-    return {"session": dto.session}
+    session: AsyncSession = Depends(db.session)
 
 
-class DetailViewBase(DetailViewBaseGeneric):
+def handler(view: ViewBase, dto: SessionDependency) -> dict:
+    return {
+        "session": dto.session,
+    }
+
+
+class ViewBase(ViewBaseGeneric):
     """
     Generic view base (detail)
     """
 
     data_layer_cls = SqlalchemyDataLayer
 
-    method_dependencies: ClassVar = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=handler,
-        ),
-    }
-
-
-class ListViewBase(ListViewBaseGeneric):
-    """
-    Generic view base (list)
-    """
-
-    data_layer_cls = SqlalchemyDataLayer
-
-    method_dependencies: ClassVar = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+    operation_dependencies: ClassVar = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=handler,
         ),

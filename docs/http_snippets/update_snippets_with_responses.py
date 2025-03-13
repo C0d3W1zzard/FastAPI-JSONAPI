@@ -3,9 +3,9 @@ import importlib
 import logging
 from http import HTTPStatus
 
-import requests
-import simplejson
 import argparse
+import orjson as json
+import requests
 
 parser = argparse.ArgumentParser()
 parser.add_argument("prefix", help="Snippets prefix to process. Like 'minimal_api', 'relationship_', etc")
@@ -14,7 +14,6 @@ parser.add_argument("-v", "--verbose", help="set logging level to DEBUG", action
 log = logging.getLogger(__name__)
 
 SNIPPETS_DIR = "snippets"
-SORT_KEYS_ON_DUMP = True
 SNIPPET_RESULT_POSTFIX = "_result"
 REMOVE_PYTHON_SNIPPET = True
 
@@ -51,10 +50,10 @@ class StrOrderCRUD:
 
 
 def run_request_for_module(module_name: str):
-    log.info("Start processing %r", module_name)
+    log.info("Start processing %s", module_name)
 
     module_full_name = ".".join((SNIPPETS_DIR, module_name))
-    log.debug("import module %s", module_full_name)
+    log.debug("Import module %s", module_full_name)
     module = importlib.import_module(module_full_name)
 
     log.info("Process module %s", module)
@@ -69,25 +68,20 @@ def run_request_for_module(module_name: str):
 
     http_response_text.append(
         # "HTTP/1.1 201 Created"
-        "{} {} {}".format(
-            "HTTP/1.1",
-            response.status_code,
-            response_reason,
-        )
+        f"HTTP/1.1 {response.status_code} {response.status_code}"
     )
 
     if ct := response.headers.get("content-type"):
-        http_response_text.append("{}: {}".format("Content-Type", ct))
+        http_response_text.append(f"Content-Type: {ct}")
     http_response_text.append("")
 
     if response.content:
         # TODO: handle non-json response?
         http_response_text.append(
-            simplejson.dumps(
+            json.dumps(
                 response.json(),
-                sort_keys=SORT_KEYS_ON_DUMP,
-                indent=2,
-            ),
+                option=json.OPT_INDENT_2 | json.OPT_SORT_KEYS,
+            ).decode(),
         )
 
     http_response_text.append("")
@@ -98,9 +92,9 @@ def run_request_for_module(module_name: str):
     result_file_name = "/".join((SNIPPETS_DIR, module_name + SNIPPET_RESULT_POSTFIX))
     with open(result_file_name, "w") as f:
         res = f.write(result_text)
-        log.info("Wrote text (%s) to %r", res, result_file_name)
+        log.info("Wrote text (%s) to %s", res, result_file_name)
 
-    log.info("Processed %r", module_name)
+    log.info("Processed %s", module_name)
 
 
 def add_help_lines(lines: list, module_name: str) -> None:
@@ -147,13 +141,13 @@ def main():
     log.warning("Starting")
 
     available_modules = os.listdir(SNIPPETS_DIR)
-    log.debug("all available snippets: %s", available_modules)
+    log.debug("All available snippets: %s", available_modules)
     modules_to_process = list(
         # exclude unknown
         filter(lambda name: name.startswith(args.prefix), available_modules)
     )
     modules_to_process.sort(key=StrOrderCRUD)
-    log.warning("modules to process (with order): %s", modules_to_process)
+    log.warning("Modules to process (with order): %s", modules_to_process)
 
     result_help_text = []
     result_help_text.append("=" * 30)
@@ -164,7 +158,7 @@ def main():
             try:
                 run_request_for_module(module_name)
             except Exception:
-                log.exception("Could not process module %r, skipping", module_file)
+                log.exception("Could not process module %s, skipping", module_file)
             else:
                 if REMOVE_PYTHON_SNIPPET:
                     os.unlink("/".join((SNIPPETS_DIR, module_file)))

@@ -1,5 +1,5 @@
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import ORJSONResponse as JSONResponse
 
 from fastapi_jsonapi.exceptions import HTTPException
 

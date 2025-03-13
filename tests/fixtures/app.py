@@ -3,45 +3,25 @@ from typing import Optional, Type
 
 import pytest
 from fastapi import APIRouter, FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
-from fastapi_jsonapi import RoutersJSONAPI, init
-from fastapi_jsonapi.atomic import AtomicOperations
-from fastapi_jsonapi.data_typing import TypeModel
-from fastapi_jsonapi.views.detail_view import DetailViewBase
-from fastapi_jsonapi.views.list_view import ListViewBase
-from tests.fixtures.views import (
-    DetailViewBaseGeneric,
-    ListViewBaseGeneric,
-)
-from tests.models import (
-    Alpha,
-    Beta,
+from examples.api_for_sqlalchemy.models import (
     Child,
     Computer,
-    CustomUUIDItem,
-    Delta,
-    Gamma,
     Parent,
     ParentToChildAssociation,
     Post,
     PostComment,
-    Task,
     User,
     UserBio,
 )
-from tests.schemas import (
-    AlphaSchema,
-    BetaSchema,
+from examples.api_for_sqlalchemy.schemas import (
     ChildInSchema,
     ChildPatchSchema,
     ChildSchema,
     ComputerInSchema,
     ComputerPatchSchema,
     ComputerSchema,
-    CustomUUIDItemSchema,
-    DeltaSchema,
-    GammaSchema,
     ParentPatchSchema,
     ParentSchema,
     ParentToChildAssociationSchema,
@@ -49,18 +29,30 @@ from tests.schemas import (
     PostInSchema,
     PostPatchSchema,
     PostSchema,
-    TaskInSchema,
-    TaskPatchSchema,
-    TaskSchema,
-    UserBioSchema,
+    UserBioBaseSchema,
     UserInSchema,
     UserPatchSchema,
     UserSchema,
 )
+from fastapi_jsonapi import ApplicationBuilder
+from fastapi_jsonapi.atomic import AtomicOperations
+from fastapi_jsonapi.data_typing import TypeModel
+from fastapi_jsonapi.views.view_base import ViewBase
 
-CURRENT_FILE = Path(__file__).resolve()
-CURRENT_DIR = CURRENT_FILE.parent
+from .models import Alpha, Beta, CustomUUIDItem, Delta, Gamma, Task
+from .schemas import (
+    AlphaSchema,
+    BetaSchema,
+    CustomUUIDItemSchema,
+    DeltaSchema,
+    GammaSchema,
+    TaskInSchema,
+    TaskPatchSchema,
+    TaskSchema,
+)
+from .views import ViewBaseGeneric
 
+CURRENT_DIR = Path(__file__).resolve().parent
 MAX_INCLUDE_DEPTH = 5
 
 
@@ -72,141 +64,105 @@ def build_app_plain() -> FastAPI:
         docs_url="/docs",
     )
     app.config = {"MAX_INCLUDE_DEPTH": MAX_INCLUDE_DEPTH}
-
     return app
 
 
 def add_routers(app_plain: FastAPI):
     router: APIRouter = APIRouter()
-
-    RoutersJSONAPI(
-        router=router,
-        path="/users",
-        tags=["User"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
-        schema=UserSchema,
-        resource_type="user",
-        schema_in_patch=UserPatchSchema,
-        schema_in_post=UserInSchema,
-        model=User,
-    )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/posts",
-        tags=["Post"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
-        schema=PostSchema,
-        resource_type="post",
-        schema_in_patch=PostPatchSchema,
-        schema_in_post=PostInSchema,
-        model=Post,
-    )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/comments",
-        tags=["Comment"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
-        schema=PostCommentSchema,
-        resource_type="post_comment",
-        model=PostComment,
-    )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/user-bio",
-        tags=["Bio"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
-        schema=UserBioSchema,
-        resource_type="user_bio",
-        model=UserBio,
-    )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/parents",
-        tags=["Parent"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
-        schema=ParentSchema,
-        resource_type="parent",
-        schema_in_patch=ParentPatchSchema,
-        schema_in_post=ParentPatchSchema,
-        model=Parent,
-    )
-
-    RoutersJSONAPI(
-        router=router,
+    builder = ApplicationBuilder(app=app_plain, base_router=router)
+    builder.add_resource(
         path="/children",
         tags=["Child"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
-        schema=ChildSchema,
         resource_type="child",
+        view=ViewBaseGeneric,
+        schema=ChildSchema,
         schema_in_patch=ChildPatchSchema,
         schema_in_post=ChildInSchema,
         model=Child,
     )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/parent-to-child-association",
-        tags=["Parent To Child Association"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
-        schema=ParentToChildAssociationSchema,
-        resource_type="parent-to-child-association",
-        model=ParentToChildAssociation,
+    builder.add_resource(
+        path="/comments",
+        tags=["Comment"],
+        resource_type="post_comment",
+        view=ViewBaseGeneric,
+        schema=PostCommentSchema,
+        model=PostComment,
     )
-
-    RoutersJSONAPI(
-        router=router,
+    builder.add_resource(
         path="/computers",
         tags=["Computer"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
+        resource_type="computer",
+        view=ViewBaseGeneric,
         model=Computer,
         schema=ComputerSchema,
-        resource_type="computer",
         schema_in_patch=ComputerPatchSchema,
         schema_in_post=ComputerInSchema,
     )
-
-    RoutersJSONAPI(
-        router=router,
+    builder.add_resource(
+        path="/custom-uuid-item",
+        tags=["Custom UUID Item"],
+        resource_type="custom_uuid_item",
+        view=ViewBaseGeneric,
+        model=CustomUUIDItem,
+        schema=CustomUUIDItemSchema,
+    )
+    builder.add_resource(
+        path="/parent-to-child-association",
+        tags=["Parent To Child Association"],
+        resource_type="parent-to-child-association",
+        view=ViewBaseGeneric,
+        model=ParentToChildAssociation,
+        schema=ParentToChildAssociationSchema,
+    )
+    builder.add_resource(
+        path="/parents",
+        tags=["Parent"],
+        resource_type="parent",
+        view=ViewBaseGeneric,
+        model=Parent,
+        schema=ParentSchema,
+        schema_in_patch=ParentPatchSchema,
+        schema_in_post=ParentPatchSchema,
+    )
+    builder.add_resource(
+        path="/posts",
+        tags=["Post"],
+        resource_type="post",
+        view=ViewBaseGeneric,
+        schema=PostSchema,
+        schema_in_patch=PostPatchSchema,
+        schema_in_post=PostInSchema,
+        model=Post,
+    )
+    builder.add_resource(
         path="/tasks",
         tags=["Task"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
+        resource_type="task",
+        view=ViewBaseGeneric,
         model=Task,
         schema=TaskSchema,
-        resource_type="task",
         schema_in_patch=TaskPatchSchema,
         schema_in_post=TaskInSchema,
     )
-
-    RoutersJSONAPI(
-        router=router,
-        path="/custom-uuid-item",
-        tags=["Custom UUID Item"],
-        class_detail=DetailViewBaseGeneric,
-        class_list=ListViewBaseGeneric,
-        model=CustomUUIDItem,
-        schema=CustomUUIDItemSchema,
-        resource_type="custom_uuid_item",
+    builder.add_resource(
+        path="/user-bio",
+        tags=["Bio"],
+        resource_type="user_bio",
+        model=UserBio,
+        view=ViewBaseGeneric,
+        schema=UserBioBaseSchema,
     )
-
-    atomic = AtomicOperations()
-
-    app_plain.include_router(router, prefix="")
-    app_plain.include_router(atomic.router, prefix="")
-
-    init(app_plain)
+    builder.add_resource(
+        path="/users",
+        tags=["User"],
+        resource_type="user",
+        view=ViewBaseGeneric,
+        model=User,
+        schema=UserSchema,
+        schema_in_patch=UserPatchSchema,
+        schema_in_post=UserInSchema,
+    )
+    builder.initialize()
 
     return app_plain
 
@@ -219,7 +175,6 @@ def app_plain() -> FastAPI:
 @pytest.fixture(scope="session")
 def app(app_plain: FastAPI):
     add_routers(app_plain)
-
     return app_plain
 
 
@@ -230,34 +185,28 @@ def build_app_custom(
     schema_in_post=None,
     path: str = "/misc",
     resource_type: str = "misc",
-    class_list: Type[ListViewBase] = ListViewBaseGeneric,
-    class_detail: Type[DetailViewBase] = DetailViewBaseGeneric,
-    max_cache_size: int = 0,
+    view: Type[ViewBase] = ViewBaseGeneric,
 ) -> FastAPI:
     router: APIRouter = APIRouter()
-
-    jsonapi_routers = RoutersJSONAPI(
+    app = build_app_plain()
+    builder = ApplicationBuilder(app=app)
+    builder.add_resource(
         router=router,
         path=path,
         tags=["Misc"],
-        class_list=class_list,
-        class_detail=class_detail,
+        view=view,
         schema=schema,
         resource_type=resource_type,
         schema_in_patch=schema_in_patch,
         schema_in_post=schema_in_post,
         model=model,
-        max_cache_size=max_cache_size,
     )
+    builder.initialize()
 
-    app = build_app_plain()
     app.include_router(router, prefix="")
 
     atomic = AtomicOperations()
     app.include_router(atomic.router, prefix="")
-    init(app)
-
-    app.jsonapi_routers = jsonapi_routers
 
     return app
 
@@ -294,29 +243,30 @@ def build_alphabet_app() -> FastAPI:
 
 
 class ResourceInfoDTO(BaseModel):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
     path: str
     resource_type: str
     model: Type[TypeModel]
     schema_: Type[BaseModel]
     schema_in_patch: Optional[BaseModel] = None
     schema_in_post: Optional[BaseModel] = None
-    class_list: Type[ListViewBase] = ListViewBaseGeneric
-    class_detail: Type[DetailViewBase] = DetailViewBaseGeneric
-
-    class Config:
-        arbitrary_types_allowed = True
+    view: Type[ViewBase] = ViewBaseGeneric
 
 
 def build_custom_app_by_schemas(resources_info: list[ResourceInfoDTO]):
     router: APIRouter = APIRouter()
+    app = build_app_plain()
+    builder = ApplicationBuilder(app)
 
     for info in resources_info:
-        RoutersJSONAPI(
+        builder.add_resource(
             router=router,
             path=info.path,
             tags=["Misc"],
-            class_list=info.class_list,
-            class_detail=info.class_detail,
+            view=ViewBaseGeneric,
             schema=info.schema_,
             resource_type=info.resource_type,
             schema_in_patch=info.schema_in_patch,
@@ -324,10 +274,10 @@ def build_custom_app_by_schemas(resources_info: list[ResourceInfoDTO]):
             model=info.model,
         )
 
-    app = build_app_plain()
+    builder.initialize()
     app.include_router(router, prefix="")
 
     atomic = AtomicOperations()
     app.include_router(atomic.router, prefix="")
-    init(app)
+
     return app

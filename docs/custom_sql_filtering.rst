@@ -11,13 +11,10 @@ You can define new filtering rules as in this example:
 
 
 
-Prepare pydantic schema which is used in RoutersJSONAPI as schema
+Prepare pydantic schema which is used in ApplicationBuilder as schema
 -----------------------------------------------------------------
 
-
-``schemas/picture.py``:
-
-.. literalinclude:: ../examples/custom_filter_example.py
+.. literalinclude:: ../examples/misc/custom_filter_example.py
     :language: python
 
 
@@ -35,7 +32,7 @@ Request:
 
 .. sourcecode:: http
 
-    GET /pictures?filter=[{"name":"picture.meta","op":"jsonb_contains","val":{"location":"Moscow"}}] HTTP/1.1
+    GET /pictures?filter=[{"name":"picture","op":"sqlite_json_ilike","val":["meta": "Moscow"]}] HTTP/1.1
     Accept: application/vnd.api+json
 
 
@@ -45,10 +42,8 @@ Filter value has to be a valid JSON:
 
     [
        {
-          "name":"picture.meta",
-          "op":"jsonb_contains",
-          "val":{
-             "location":"Moscow"
-          }
+          "name":"picture",
+          "op":"sqlite_json_ilike",
+          "val":["meta": "Moscow"]
        }
     ]

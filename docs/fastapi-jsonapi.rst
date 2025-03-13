@@ -1,14 +1,6 @@
 Package fastapi_jsonapi index
 =============================
 
-fastapi_jsonapi.data_layers.fields.enum module
-----------------------------------------------
-
-.. automodule:: fastapi_jsonapi.data_layers.fields.enum
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 fastapi_jsonapi.data_layers.fields.mixins module
 ------------------------------------------------
 
@@ -17,42 +9,35 @@ fastapi_jsonapi.data_layers.fields.mixins module
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.data_layers.filtering.sqlalchemy module
+
+fastapi_jsonapi.data_layers.sqla module
 -------------------------------------------------------
 
-.. automodule:: fastapi_jsonapi.data_layers.filtering.sqlalchemy
+.. automodule:: fastapi_jsonapi.data_layers.sqla
     :members:
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.data_layers.filtering.tortoise_operation module
----------------------------------------------------------------
-
-.. automodule:: fastapi_jsonapi.data_layers.filtering.tortoise_operation
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-fastapi_jsonapi.data_layers.filtering.tortoise_orm module
----------------------------------------------------------
-
-.. automodule:: fastapi_jsonapi.data_layers.filtering.tortoise_orm
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-fastapi_jsonapi.data_layers.sorting.sqlalchemy module
------------------------------------------------------
-
-.. automodule:: fastapi_jsonapi.data_layers.sorting.sqlalchemy
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
-fastapi_jsonapi.data_layers.sorting.tortoise_orm module
+fastapi_jsonapi.data_layers.sqla.base_model module
 -------------------------------------------------------
 
-.. automodule:: fastapi_jsonapi.data_layers.sorting.tortoise_orm
+.. automodule:: fastapi_jsonapi.data_layers.sqla.base_model
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+fastapi_jsonapi.data_layers.sqla.orm module
+-------------------------------------------------------
+
+.. automodule:: fastapi_jsonapi.data_layers.sqla.orm
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+fastapi_jsonapi.data_layers.sqla.query_building module
+-------------------------------------------------------
+
+.. automodule:: fastapi_jsonapi.data_layers.sqla.query_building
     :members:
     :undoc-members:
     :show-inheritance:
@@ -73,37 +58,47 @@ fastapi_jsonapi.data_typing module
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.data_layers.orm module
---------------------------------------
+fastapi_jsonapi.fastapi_jsonapi.misc.sqla.generics.base module
+--------------------------------------------------------------
 
-.. automodule:: fastapi_jsonapi.data_layers.orm
+.. automodule:: fastapi_jsonapi.misc.sqla.generics.base
     :members:
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.data_layers.shared module
------------------------------------------
+fastapi_jsonapi.storages module
+-------------------------------
 
-.. automodule:: fastapi_jsonapi.data_layers.shared
+.. automodule:: fastapi_jsonapi.storages
     :members:
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.data_layers.sqla_orm module
--------------------------------------------
 
-.. automodule:: fastapi_jsonapi.data_layers.sqla_orm
+fastapi_jsonapi.storages.storages.models_storage module
+-------------------------------------------------------
+
+.. automodule:: fastapi_jsonapi.storages.models_storage
     :members:
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.data_layers.tortoise_orm module
+fastapi_jsonapi.storages.schemas_storage module
 -----------------------------------------------
 
-.. automodule:: fastapi_jsonapi.data_layers.tortoise_orm
+.. automodule:: fastapi_jsonapi.storages.schemas_storage
     :members:
     :undoc-members:
     :show-inheritance:
+
+fastapi_jsonapi.storages.views_storage module
+---------------------------------------------
+
+.. automodule:: fastapi_jsonapi.storages.views_storage
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 
 fastapi_jsonapi.api module
 --------------------------
@@ -113,10 +108,26 @@ fastapi_jsonapi.api module
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.jsonapi_typing module
--------------------------------------
+fastapi_jsonapi.api.application_builder module
+----------------------------------------------
 
-.. automodule:: fastapi_jsonapi.jsonapi_typing
+.. automodule:: fastapi_jsonapi.api.application_builder
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+fastapi_jsonapi.api.endpoint_builder module
+-------------------------------------------
+
+.. automodule:: fastapi_jsonapi.api.endpoint_builder
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+fastapi_jsonapi.api.schemas module
+----------------------------------
+
+.. automodule:: fastapi_jsonapi.api.schemas
     :members:
     :undoc-members:
     :show-inheritance:
@@ -137,18 +148,26 @@ fastapi_jsonapi.schema module
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.signature module
---------------------------------
+fastapi_jsonapi.schema_base module
+----------------------------------
 
-.. automodule:: fastapi_jsonapi.signature
+.. automodule:: fastapi_jsonapi.schema_base
     :members:
     :undoc-members:
     :show-inheritance:
 
-fastapi_jsonapi.splitter module
--------------------------------
+fastapi_jsonapi.schema_builder module
+-------------------------------------
 
-.. automodule:: fastapi_jsonapi.splitter
+.. automodule:: fastapi_jsonapi.schema_builder
     :members:
+    :undoc-members:
+    :show-inheritance:
+
+fastapi_jsonapi.signature module
+--------------------------------
+
+.. automodule:: fastapi_jsonapi.signature
+    :members:F
     :undoc-members:
     :show-inheritance:

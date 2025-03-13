@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import ClassVar, Dict, Literal, Optional
+from typing import ClassVar, Literal, Optional
 
 import pytest
 from fastapi import Body, Depends, FastAPI, HTTPException, status
@@ -9,13 +7,12 @@ from pydantic import BaseModel
 from pytest_asyncio import fixture
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from examples.api_for_sqlalchemy.models import User
+from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema, UserSchema
 from fastapi_jsonapi.atomic import current_atomic_operation
-from fastapi_jsonapi.misc.sqla.generics.base import DetailViewBaseGeneric, ListViewBaseGeneric
+from fastapi_jsonapi.misc.sqla.generics.base import ViewBaseGeneric
 from fastapi_jsonapi.utils.exceptions import handle_validation_error
-from fastapi_jsonapi.views.utils import (
-    HTTPMethod,
-    HTTPMethodConfig,
-)
+from fastapi_jsonapi.views import Operation, OperationConfig
 from tests.common_user_api_test import (
     BaseGenericUserCreateUpdateWithBodyDependency,
     CustomNameAttributesJSONAPI,
@@ -24,14 +21,6 @@ from tests.common_user_api_test import (
 from tests.fixtures.app import build_app_custom
 from tests.fixtures.views import ArbitraryModelBase, SessionDependency, common_handler
 from tests.misc.utils import fake
-from tests.models import User
-from tests.schemas import (
-    UserAttributesBaseSchema,
-    UserSchema,
-)
-
-pytestmark = pytest.mark.asyncio
-
 
 FIELD_CUSTOM_NAME = "custom_name"
 
@@ -65,7 +54,7 @@ def get_validated_attribute_from_body(data: dict):
     # validated_data = CustomNameAttributesJSONAPI.parse_obj(data)
     # return validated_data.attributes.custom_name
 
-    validated_data = AttributesTopLevelBody.parse_obj({"body": {"data": data}})
+    validated_data = AttributesTopLevelBody.model_validate({"body": {"data": data}})
 
     # or
     # return get_custom_name_from_body_only_on_generic(data=validated_data)
@@ -85,7 +74,7 @@ async def get_custom_name_from_body_universal(
         # dep_helper = DependencyHelper(request=request)
         # return await dep_helper.run(get_custom_name_from_body_only_on_generic)
 
-    return get_validated_attribute_from_body(atomic_operation.data.dict())
+    return get_validated_attribute_from_body(atomic_operation.data.model_dump())
 
 
 class ValidateCustomNameEquals(ValidateCustomNameEqualsBase):
@@ -126,25 +115,16 @@ class UserUpdateCustomDependency(ArbitraryModelBase):
     allow: bool = Depends(validator_update.validate)
 
 
-class UserCustomListView(ListViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
+class UserCustomView(ViewBaseGeneric):
+    operation_dependencies: ClassVar[dict[Operation, OperationConfig]] = {
+        Operation.ALL: OperationConfig(
             dependencies=SessionDependency,
             prepare_data_layer_kwargs=common_handler,
         ),
-        HTTPMethod.POST: HTTPMethodConfig(
+        Operation.CREATE: OperationConfig(
             dependencies=UserCreateCustomDependency,
         ),
-    }
-
-
-class UserCustomDetailView(DetailViewBaseGeneric):
-    method_dependencies: ClassVar[Dict[HTTPMethod, HTTPMethodConfig]] = {
-        HTTPMethod.ALL: HTTPMethodConfig(
-            dependencies=SessionDependency,
-            prepare_data_layer_kwargs=common_handler,
-        ),
-        HTTPMethod.PATCH: HTTPMethodConfig(
+        Operation.UPDATE: OperationConfig(
             dependencies=UserUpdateCustomDependency,
         ),
     }
@@ -166,8 +146,7 @@ class TestSameBodyDependencyBothForGenericsAndCurrentAtomicOperation(
             model=User,
             schema=UserSchema,
             resource_type=resource_type,
-            class_list=UserCustomListView,
-            class_detail=UserCustomDetailView,
+            view=UserCustomView,
             path=f"/path_{resource_type}",
         )
         return app
@@ -277,7 +256,7 @@ class TestSameBodyDependencyBothForGenericsAndCurrentAtomicOperation(
         resource_type: str,
         user_attributes: UserAttributesBaseSchema,
     ):
-        user_attributes_data = user_attributes.dict()
+        user_attributes_data = user_attributes.model_dump()
         assert self.FIELD_CUSTOM_NAME not in user_attributes_data
         data_atomic_request = {
             "atomic:operations": [
@@ -300,18 +279,17 @@ class TestSameBodyDependencyBothForGenericsAndCurrentAtomicOperation(
         user_attributes: UserAttributesBaseSchema,
         user_1: User,
     ):
-        attributes_data = user_attributes.dict()
+        attributes_data = user_attributes.model_dump()
         assert self.FIELD_CUSTOM_NAME not in attributes_data
-        data_user_update = {
-            "id": user_1.id,
-            "type": resource_type,
-            "attributes": attributes_data,
-        }
         data_atomic_request = {
             "atomic:operations": [
                 {
                     "op": "update",
-                    "data": data_user_update,
+                    "data": {
+                        "id": f"{user_1.id}",
+                        "type": resource_type,
+                        "attributes": attributes_data,
+                    },
                 },
             ],
         }
@@ -324,7 +302,7 @@ class TestSameBodyDependencyBothForGenericsAndCurrentAtomicOperation(
         resource_type: str,
         user_attributes: UserAttributesBaseSchema,
     ):
-        user_attributes_data = user_attributes.dict()
+        user_attributes_data = user_attributes.model_dump()
         user_attributes_data[self.FIELD_CUSTOM_NAME] = fake.word()
         assert user_attributes_data[self.FIELD_CUSTOM_NAME] != self.validator_create.expected_value
         data_atomic_request = {
@@ -348,18 +326,17 @@ class TestSameBodyDependencyBothForGenericsAndCurrentAtomicOperation(
         user_attributes: UserAttributesBaseSchema,
         user_1: User,
     ):
-        attributes_data = user_attributes.dict()
+        attributes_data = user_attributes.model_dump()
         attributes_data[self.FIELD_CUSTOM_NAME] = fake.word()
-        data_user_update = {
-            "id": user_1.id,
-            "type": resource_type,
-            "attributes": attributes_data,
-        }
         data_atomic_request = {
             "atomic:operations": [
                 {
                     "op": "update",
-                    "data": data_user_update,
+                    "data": {
+                        "id": f"{user_1.id}",
+                        "type": resource_type,
+                        "attributes": attributes_data,
+                    },
                 },
             ],
         }
@@ -373,15 +350,14 @@ class TestSameBodyDependencyBothForGenericsAndCurrentAtomicOperation(
         resource_type: str,
         user_attributes: UserAttributesBaseSchema,
     ):
-        data_user_create = self.prepare_user_create_data(
-            user_attributes=user_attributes,
-            resource_type=resource_type,
-        )
         data_atomic_request = {
             "atomic:operations": [
                 {
                     "op": "add",
-                    "data": data_user_create,
+                    "data": self.prepare_user_create_data(
+                        user_attributes=user_attributes,
+                        resource_type=resource_type,
+                    ),
                 },
             ],
         }
@@ -410,16 +386,15 @@ class TestSameBodyDependencyBothForGenericsAndCurrentAtomicOperation(
         user_attributes: UserAttributesBaseSchema,
         user_1: User,
     ):
-        data_user_update = self.prepare_user_update_data(
-            user=user_1,
-            user_attributes=user_attributes,
-            resource_type=resource_type,
-        )
         data_atomic_request = {
             "atomic:operations": [
                 {
                     "op": "update",
-                    "data": data_user_update,
+                    "data": self.prepare_user_update_data(
+                        user=user_1,
+                        user_attributes=user_attributes,
+                        resource_type=resource_type,
+                    ),
                 },
             ],
         }

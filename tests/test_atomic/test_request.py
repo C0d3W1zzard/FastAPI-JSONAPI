@@ -54,7 +54,7 @@ class TestAtomicOperationRequest:
                         "ref": {
                             "type": "articles",
                             "id": "13",
-                            "relationship": "author",
+                            "relationship": "user",
                         },
                         "data": {
                             "type": "people",
@@ -71,7 +71,7 @@ class TestAtomicOperationRequest:
                         "ref": {
                             "type": "articles",
                             "id": "13",
-                            "relationship": "author",
+                            "relationship": "user",
                         },
                         "data": None,
                     },
@@ -80,8 +80,8 @@ class TestAtomicOperationRequest:
         ],
     )
     def test_request_data(self, operation_request: dict):
-        validated = AtomicOperationRequest.parse_obj(operation_request)
-        assert validated.dict(exclude_unset=True, by_alias=True) == operation_request
+        validated = AtomicOperationRequest.model_validate(operation_request)
+        assert validated.model_dump(exclude_unset=True, by_alias=True) == operation_request
 
     def test_not_supported_operation(
         self,
@@ -103,10 +103,7 @@ class TestAtomicOperationRequest:
             ],
         }
         with pytest.raises(ValidationError) as exc_info:
-            AtomicOperationRequest.parse_obj(atomic_request_data)
+            AtomicOperationRequest.model_validate(atomic_request_data)
         errors = exc_info.value.errors()
         error = errors[0]
-        assert (
-            error.get("msg")
-            == f"value is not a valid enumeration member; permitted: {allowed_atomic_actions_as_string}"
-        )
+        assert error.get("msg") == f"Input should be {allowed_atomic_actions_as_string}"

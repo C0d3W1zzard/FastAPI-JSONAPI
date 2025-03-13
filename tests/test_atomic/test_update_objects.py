@@ -1,15 +1,13 @@
 import logging
 
 import pytest
+from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette import status
 
+from examples.api_for_sqlalchemy.models import Computer, User, UserBio
+from examples.api_for_sqlalchemy.schemas import UserAttributesBaseSchema, UserBioAttributesBaseSchema
 from tests.misc.utils import fake
-from tests.models import Computer, User, UserBio
-from tests.schemas import UserAttributesBaseSchema, UserBioAttributesBaseSchema
-
-pytestmark = pytest.mark.asyncio
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -22,8 +20,8 @@ class TestAtomicUpdateObjects:
         user_1: User,
         user_1_bio: UserBio,
     ):
-        user_data = UserAttributesBaseSchema.from_orm(user_1)
-        user_bio_data = UserBioAttributesBaseSchema.from_orm(user_1_bio)
+        user_data = UserAttributesBaseSchema.model_validate(user_1)
+        user_bio_data = UserBioAttributesBaseSchema.model_validate(user_1_bio)
         user_data.name = fake.name()
         user_bio_data.favourite_movies = fake.sentence()
         assert user_1.name != user_data.name
@@ -33,17 +31,17 @@ class TestAtomicUpdateObjects:
                 {
                     "op": "update",
                     "data": {
-                        "id": str(user_1.id),
+                        "id": f"{user_1.id}",
                         "type": "user",
-                        "attributes": user_data.dict(),
+                        "attributes": user_data.model_dump(),
                     },
                 },
                 {
                     "op": "update",
                     "data": {
-                        "id": str(user_1_bio.id),
+                        "id": f"{user_1_bio.id}",
                         "type": "user_bio",
-                        "attributes": user_bio_data.dict(),
+                        "attributes": user_bio_data.model_dump(),
                     },
                 },
             ],
@@ -62,16 +60,16 @@ class TestAtomicUpdateObjects:
         assert results == [
             {
                 "data": {
-                    "attributes": user_data.dict(),
-                    "id": str(user_1.id),
+                    "attributes": user_data.model_dump(),
+                    "id": f"{user_1.id}",
                     "type": "user",
                 },
                 "meta": None,
             },
             {
                 "data": {
-                    "attributes": user_bio_data.dict(),
-                    "id": str(user_1_bio.id),
+                    "attributes": user_bio_data.model_dump(),
+                    "id": f"{user_1_bio.id}",
                     "type": "user_bio",
                 },
                 "meta": None,
@@ -96,7 +94,7 @@ class TestAtomicUpdateObjects:
             "ref": {
               "type": "articles",
               "id": "13",
-              "relationship": "author"
+              "relationship": "user"
             },
             "data": {
               "type": "people",
@@ -118,12 +116,12 @@ class TestAtomicUpdateObjects:
                     "op": "update",
                     "ref": {
                         "type": "computer",
-                        "id": computer_1.id,
+                        "id": f"{computer_1.id}",
                         "relationship": "user",
                     },
                     "data": {
                         "type": "user",
-                        "id": user_1.id,
+                        "id": f"{user_1.id}",
                     },
                 },
             ],
@@ -154,7 +152,7 @@ class TestAtomicUpdateObjects:
             "ref": {
               "type": "articles",
               "id": "13",
-              "relationship": "author"
+              "relationship": "user"
             },
             "data": null
           }]
@@ -177,8 +175,8 @@ class TestAtomicUpdateObjects:
                     "op": "update",
                     "ref": {
                         "type": "computer",
-                        "id": computer_1.id,
-                        "relationship": "author",
+                        "id": f"{computer_1.id}",
+                        "relationship": "user",
                     },
                     "data": None,
                 },

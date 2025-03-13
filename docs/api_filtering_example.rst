@@ -6,14 +6,16 @@ Filtering API example
 
 
 
-Filter by jsonb contains
+Filter by jsonb contains. Before using the filter, you must define it and apply it
+to the schema as shown here :ref:`custom_sql_filtering`. Some useful  filters are
+defined in module **fastapi_jsonapi.types_metadata.custom_filter_sql.py**
 
 .. code-block:: json
 
     [
       {
         "name": "words",
-        "op": "jsonb_contains",
+        "op": "sqlite_json_contains",
         "val": {"location": "Moscow", "spam": "eggs"}
       }
     ]

@@ -1,15 +1,9 @@
-from typing import (
-    Optional,
-    Type,
-)
+from typing import Optional, Type
 
 from fastapi import APIRouter, Request, Response, status
 
 from fastapi_jsonapi.atomic.atomic_handler import AtomicViewHandler
-from fastapi_jsonapi.atomic.schemas import (
-    AtomicOperationRequest,
-    AtomicResultResponse,
-)
+from fastapi_jsonapi.atomic.schemas import AtomicOperationRequest, AtomicResultResponse
 
 
 class AtomicOperations:
