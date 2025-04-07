@@ -21,4 +21,4 @@ comment:
   require_changes: no
   branches:
     - main
-  after_n_builds: 6  # 3 python versions by 2 dbs
+  after_n_builds: 8  # 4 python versions by 2 dbs
