@@ -241,7 +241,7 @@ class SchemaBuilder:
                     continue
                 resource_id_field = (str, can_set_id, self._annotation_with_validators(field=field), id_validators)
             else:
-                attributes_schema_fields[name] = (self._annotation_with_validators(field=field), field.default)
+                attributes_schema_fields[name] = (self._annotation_with_validators(field=field), field)
 
         model_config = ConfigDict(
             from_attributes=True,
